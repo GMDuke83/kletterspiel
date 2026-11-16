@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createRenderer } from './render/renderer';
 import { createEnvironment } from './world/environment';
 import { loadWall } from './world/loadWall';
-import { loadTerrain } from './world/terrain';
+import { loadTerrain, makeHeightSampler } from './world/terrain';
 import { Climber, type Side } from './climbing/climber';
 import { GripAim } from './climbing/aim';
 import { PlaceholderFigure } from './character/placeholder';
@@ -130,6 +130,11 @@ async function start(): Promise<void> {
     // schraeg von der Seite: Wand und Landschaft gleichzeitig im Bild
     rig.defaultYaw = rig.yaw = 0.65;
     rig.distance = 5.5;
+    if (near) {
+      const nb = route.near.bounds;
+      const step = high ? route.near.meshStep : 3.6;
+      rig.ground = makeHeightSampler(near, nb.E0 - o.E, -(nb.N1 - o.N), step, nb.E1 - nb.E0);
+    }
   }
   const hud = new Hud();
   loadingEl.remove();

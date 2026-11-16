@@ -17,6 +17,8 @@ export class CameraRig {
   pitch = 0.18;
   /** Aussichts-Modus (Taste V): Blick von der Wand weg */
   lookout = false;
+  /** optionale Gelaendehoehe: die Kamera bleibt darueber (faehrt nicht in den Berg) */
+  ground: ((x: number, z: number) => number) | null = null;
   private lookYaw = 0;
   private lookPitch = -0.15;
   private pos = new THREE.Vector3();
@@ -98,6 +100,21 @@ export class CameraRig {
       .addScaledVector(dir, horiz)
       .add(new THREE.Vector3(0, 0.9 + Math.sin(this.pitch) * this.distance, 0));
     const wantLook = new THREE.Vector3().copy(target).add(new THREE.Vector3(0, 0.6, 0));
+    if (this.ground) {
+      // vom Blickpunkt zur Kamera laufen; liegt ein Punkt im Fels, Kamera davor stoppen
+      const seg = wantPos.clone().sub(wantLook);
+      const p = new THREE.Vector3();
+      let keep = 1;
+      for (let i = 2; i <= 16; i++) {
+        const t = i / 16;
+        p.copy(wantLook).addScaledVector(seg, t);
+        if (p.y < this.ground(p.x, p.z) + 0.6) {
+          keep = Math.max(1.4 / seg.length(), (i - 1) / 16);
+          break;
+        }
+      }
+      wantPos.copy(wantLook).addScaledVector(seg, keep);
+    }
     const f = this.initialized ? 1 - Math.exp(-dt * 5) : 1;
     this.pos.lerp(wantPos, f);
     this.look.lerp(wantLook, f);

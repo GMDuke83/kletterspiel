@@ -31,3 +31,34 @@ export async function loadTerrain(
   });
   return gltf.scene;
 }
+
+/**
+ * Schnelle Hoehenabfrage aus einem regelmaessigen Gelaende-Gitter (build_near.py):
+ * die ersten (n+1)^2 Punkte sind das Gitter, Zeile 0 = Norden (kleinstes z), Spalte = Osten.
+ * Liefert -Infinity ausserhalb des Gitters.
+ */
+export function makeHeightSampler(
+  root: THREE.Object3D,
+  minX: number,
+  minZ: number,
+  step: number,
+  size: number,
+): (x: number, z: number) => number {
+  let pos: THREE.BufferAttribute | null = null;
+  root.traverse((o) => {
+    if (!pos && o instanceof THREE.Mesh) pos = o.geometry.getAttribute('position') as THREE.BufferAttribute;
+  });
+  const n = Math.round(size / step);
+  return (x, z) => {
+    if (!pos) return -Infinity;
+    const c = (x - minX) / step;
+    const r = (z - minZ) / step;
+    if (c < 0 || r < 0 || c >= n || r >= n) return -Infinity;
+    const c0 = Math.floor(c);
+    const r0 = Math.floor(r);
+    const fc = c - c0;
+    const fr = r - r0;
+    const h = (rr: number, cc: number) => pos!.getY(rr * (n + 1) + cc);
+    return (h(r0, c0) * (1 - fc) + h(r0, c0 + 1) * fc) * (1 - fr) + (h(r0 + 1, c0) * (1 - fc) + h(r0 + 1, c0 + 1) * fc) * fr;
+  };
+}
