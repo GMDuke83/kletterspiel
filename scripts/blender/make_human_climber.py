@@ -38,11 +38,8 @@ NEEDED = ("packs/", "skins/young_caucasian_male/", "clothes/male_casualsuit02/",
           "hair/short02/", "eyebrows/eyebrow001/", "eyelashes/eyelashes01/", "eyes/")
 SKIN = "skins/young_caucasian_male/young_caucasian_male.mhmat"
 CLOTHES = ["clothes/male_casualsuit02/male_casualsuit02.mhclo", "clothes/shoes03/shoes03.mhclo"]
-BODYPARTS = {
-    "Hair": "hair/short02/short02.mhclo",
-    "Eyebrows": "eyebrows/eyebrow001/eyebrow001.mhclo",
-    "Eyelashes": "eyelashes/eyelashes01/eyelashes01.mhclo",
-}
+# Haare liegen unter dem Helm; Brauen/Wimpern (Alpha-Texturen) erzeugten im Browser Flecken -> weggelassen
+BODYPARTS = {}
 TEX_MAX = 1024   # Texturen fuers Web verkleinern
 
 
@@ -187,23 +184,27 @@ def add_gear(rig, body):
         o.parent = rig
         objs.append(o)
 
-    # Helm: Halbkugel ueber dem Kopf
+    # Helm: Schale, die Stirn, Schlaefen und Hinterkopf umschliesst, mit Rand
     head = head_pos("head")
     top = tail_pos("head")
+    up = (top - head).normalized()
     hl = (top - head).length
-    c = head + (top - head) * 0.62
+    c = head + up * (hl * 0.55)
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=28, v_segments=14, radius=1.0)
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -0.2], context="VERTS")
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=1.0)
+    # vorne hoeher abschneiden (Gesicht frei), hinten tiefer (Hinterkopf bedeckt)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < (-0.05 if v.co.y < 0 else -0.45)], context="VERTS")
+    rx, ry, rz = 0.105, 0.125, 0.105
     for v in bm.verts:
-        v.co = Vector((v.co.x * hl * 0.68, v.co.y * hl * 0.78 - hl * 0.02, v.co.z * hl * 0.56)) + c
+        v.co = Vector((v.co.x * rx, v.co.y * ry + 0.005, v.co.z * rz)) + c
+    # Wandstaerke: Schale nach aussen extrudieren
+    ret = bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.012)
     finish(bm, "helmet", "helmet", "head")
-    # (Helm leicht groesser, damit die Haare nicht durchstechen)
 
     # Gurt: Hueftring + zwei Beinschlaufen
     pelvis = head_pos("pelvis")
     bm = bmesh.new()
-    for (cx, cz, rx, ry, depth) in ((0.0, 0.05, 0.195, 0.14, 0.055),):
+    for (cx, cz, rx, ry, depth) in ((0.0, -0.035, 0.205, 0.15, 0.06),):
         ret = bmesh.ops.create_cone(bm, cap_ends=False, segments=28, radius1=1, radius2=1, depth=depth)
         for v in ret["verts"]:
             v.co = Vector((cx + v.co.x * rx, v.co.y * ry, v.co.z)) + pelvis + Vector((0, 0.005, cz))
@@ -218,14 +219,27 @@ def add_gear(rig, body):
             v.co = Vector((v.co.x * 0.11, v.co.y * 0.115, v.co.z)) + p
         finish(bm, f"harness_leg_{side}", "harness", f"thigh_{side}")
 
-    # Rucksack am Ruecken (Figur schaut nach -Y -> Ruecken bei +Y)
+    # Rucksack direkt am Ruecken (Figur schaut nach -Y -> Ruecken bei +Y), mit Volumen und Traegern.
+    # Rueckenflaeche: hinterster Punkt des Koerpers auf Brusthoehe
     sp = head_pos("spine_03")
+    back_y = max((body.matrix_world @ v.co).y for v in body.data.vertices
+                 if abs((body.matrix_world @ v.co).z - sp.z) < 0.08 and abs((body.matrix_world @ v.co).x) < 0.12)
+    depth = 0.16
     bm = bmesh.new()
     ret = bmesh.ops.create_cube(bm, size=1.0)
     for v in ret["verts"]:
-        v.co = Vector((v.co.x * 0.27, v.co.y * 0.12, v.co.z * 0.38)) + sp + Vector((0, 0.17, -0.02))
-    bmesh.ops.bevel(bm, geom=list(bm.edges), offset=0.03, segments=3, affect="EDGES")
+        v.co = Vector((v.co.x * 0.28, v.co.y * depth, v.co.z * 0.42)) + Vector((0, back_y + 0.015 + depth / 2, sp.z - 0.06))
+    bmesh.ops.bevel(bm, geom=list(bm.edges), offset=0.045, segments=4, affect="EDGES")
     finish(bm, "backpack", "pack", "spine_03")
+    for sx in (-0.085, 0.085):
+        bm = bmesh.new()
+        ret = bmesh.ops.create_cube(bm, size=1.0)
+        front_y = min((body.matrix_world @ v.co).y for v in body.data.vertices
+                      if abs((body.matrix_world @ v.co).z - sp.z) < 0.08 and abs((body.matrix_world @ v.co).x - sx) < 0.03)
+        # Traeger vorne: von der Schulter bis knapp unter die Brust
+        for v in ret["verts"]:
+            v.co = Vector((v.co.x * 0.035, v.co.y * 0.012, v.co.z * 0.24)) + Vector((sx, front_y - 0.012, sp.z + 0.1))
+        finish(bm, f"strap_{'l' if sx > 0 else 'r'}", "pack", "spine_03")
     log("Ausruestung: Helm, Gurt, Rucksack")
     return objs
 
@@ -278,6 +292,26 @@ def main():
 
     gear = add_gear(rig, body)
     shrink_images()
+    for m in bpy.data.materials:
+        if not m.use_nodes:
+            continue
+        for n in m.node_tree.nodes:
+            if n.type == "BSDF_PRINCIPLED":
+                a = n.inputs["Alpha"]
+                for l in list(a.links):
+                    m.node_tree.links.remove(l)
+                a.default_value = 1.0
+                if not m.name.startswith("gear_"):
+                    n.inputs["Roughness"].default_value = 0.85
+                    for l in list(n.inputs["Roughness"].links):
+                        m.node_tree.links.remove(l)
+                    if "Specular IOR Level" in n.inputs:
+                        n.inputs["Specular IOR Level"].default_value = 0.3
+        try:
+            m.surface_render_method = "DITHERED"
+        except Exception:
+            pass
+    log("Materialien undurchsichtig und matt gesetzt")
 
     # Dreiecke zaehlen (mit Masken-Modifiern ausgewertet)
     dg = bpy.context.evaluated_depsgraph_get()

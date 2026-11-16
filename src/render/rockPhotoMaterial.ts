@@ -50,7 +50,9 @@ export function applyRockPhoto(
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-         diffuseColor.rgb *= mix(1.0, texture2D(uRockDetail, vMapUv * uRockRepeat).r * 2.0, 0.85 * uRockAmt);`,
+         diffuseColor.rgb *= mix(1.0, texture2D(uRockDetail, vMapUv * uRockRepeat).r * 2.0, 0.85 * uRockAmt);
+         // gebackene Wandfarbe ist dunkler als das Luftbild-Gelaende daneben: aufhellen, leicht kuehler
+         diffuseColor.rgb *= vec3(1.55, 1.6, 1.7);`,
       )
       .replace(
         '#include <roughnessmap_fragment>',

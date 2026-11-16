@@ -68,7 +68,7 @@ export class GripAim {
     this.ring.visible = !!best;
     if (best) {
       this.ring.position.copy(best.position).addScaledVector(best.normal, 0.03);
-      this.ring.lookAt(this.v.copy(best.position).add(best.normal));
+      this.ring.quaternion.copy(camera.quaternion); // Ring immer zur Kamera gedreht
       this.ringMat.color.setHex(reachable(best) ? 0x4cd964 : 0xff453a);
       this.hoverDot.position.copy(best.position).addScaledVector(best.normal, 0.03);
       (this.hoverDot.material as THREE.MeshBasicMaterial).color.setHex(

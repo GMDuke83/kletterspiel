@@ -5,12 +5,13 @@
     "Haut, Haare, Augen, Kleidung angelegt",
     "Kleidung eingefaerbt (1176168 px Jacke, 1289944 px Hose)",
     "Ausruestung: Helm, Gurt, Rucksack",
-    "Dreiecke gesamt: 30616",
-    "GLB: C:\\Users\\User\\claude cm\\public\\assets\\climber_human.glb (5178 KB)",
-    "Vorschau: C:\\Users\\User\\claude cm\\previews\\climber_human_blender.png"
+    "Materialien undurchsichtig und matt gesetzt",
+    "Dreiecke gesamt: 27540",
+    "GLB: D:\\kletterspiel\\public\\assets\\climber_human.glb (1241 KB)",
+    "Vorschau: D:\\kletterspiel\\previews\\climber_human_blender.png"
   ],
-  "triangles": 30616,
-  "glb_kb": 5178,
+  "triangles": 27540,
+  "glb_kb": 1241,
   "bones": [
     "Root",
     "pelvis",

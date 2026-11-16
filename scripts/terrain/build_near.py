@@ -160,7 +160,7 @@ def main():
 
         return P, N, T, I
 
-    P, N, T, I = patch_mesh(STEP)
+    P, N, T, I = patch_mesh(STEP, cut=False)   # kein Loch: die Wand liegt vor dem Gelaende, Raender tauchen darunter
 
     # ------------------------------------------------ Luftbild 10 cm, entschattet
     im = load_tile("image_010", e, n)

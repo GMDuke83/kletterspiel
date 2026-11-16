@@ -35,6 +35,8 @@ export class ClimberFigure {
     right: { planted: null, from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1 },
   };
   private torso = new THREE.Vector3();
+  private human = false;
+  private anchorH = ANCHOR_H;
 
   private constructor(root: THREE.Object3D) {
     this.root = root;
@@ -52,12 +54,25 @@ export class ClimberFigure {
       const kids = b.children.filter((c) => c instanceof THREE.Bone);
       this.restDir.set(b, kids.length === 1 ? kids[0].position.clone().normalize() : new THREE.Vector3(0, 1, 0));
     }
-    // Laenge eines Knochens = Abstand zum Kind-Gelenk
-    const d = (child: string) => this.bone(child)?.position.length() ?? 0;
-    this.len.upper = d('forearm.L') || 0.3;
-    this.len.fore = d('hand.L') || 0.26;
-    this.len.thigh = d('shin.L') || 0.42;
-    this.len.shin = d('foot.L') || 0.42;
+    // Laengen in Weltkoordinaten messen (das MakeHuman-Skelett ist intern skaliert)
+    root.updateMatrixWorld(true);
+    const wp = (n: string) => {
+      const b = this.bone(n);
+      return b ? new THREE.Vector3().setFromMatrixPosition(b.matrixWorld) : null;
+    };
+    const d = (a: string, b: string) => {
+      const pa = wp(a);
+      const pb = wp(b);
+      return pa && pb ? pa.distanceTo(pb) : 0;
+    };
+    this.len.upper = d('upper_arm.L', 'forearm.L') || 0.3;
+    this.len.fore = d('forearm.L', 'hand.L') || 0.26;
+    this.len.thigh = d('thigh.L', 'shin.L') || 0.42;
+    this.len.shin = d('shin.L', 'foot.L') || 0.42;
+    this.human = !!this.bones.get('upperarm_l');
+    // Hoehe des Ankerpunkts (Huefte) aus dem Modell: Beckenknochen
+    const pelvis = wp('hips');
+    if (pelvis) this.anchorH = pelvis.y + 0.05;
   }
 
   static async load(url: string): Promise<ClimberFigure> {
@@ -151,7 +166,7 @@ export class ClimberFigure {
     // Ausrichtung: Gesicht zur Wand (-out), Oberkoerper leicht zur Wand geneigt
     const yaw = Math.atan2(-out.x, -out.z);
     const qYaw = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-    const qLean = new THREE.Quaternion().setFromAxisAngle(right, -LEAN);
+    const qLean = new THREE.Quaternion().setFromAxisAngle(right, -(this.human ? LEAN * 1.6 : LEAN));
     this.root.quaternion.copy(qLean.multiply(qYaw));
 
     // Zittern bei wenig Ausdauer
@@ -185,8 +200,10 @@ export class ClimberFigure {
     const dWall = probe(this.torso, out);
     if (dWall !== null && dWall < 0.2) this.torso.addScaledVector(out, 0.2 - dWall);
 
-    const anchor = new THREE.Vector3(0, ANCHOR_H, 0).applyQuaternion(this.root.quaternion);
+    const anchor = new THREE.Vector3(0, this.anchorH, 0).applyQuaternion(this.root.quaternion);
     this.root.position.copy(this.torso).sub(anchor);
+    // realistische Figur ist tiefer (Brust/Rucksack): Huefte etwas naeher an den Fels
+    if (this.human) this.root.position.addScaledVector(out, -0.06);
     this.root.updateMatrixWorld(true);
 
     // ------------------------------------------------ Arme

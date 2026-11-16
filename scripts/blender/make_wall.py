@@ -140,6 +140,10 @@ def hold_shape(h, x, z):
     """Erhebung (m, zur Kletterseite) einer einzelnen Griff-/Trittform an (x, z)."""
     dx, dz = x - h["x"], z - h["z"]
     t, w = h["type"], h["w"]
+    # unregelmaessige Kante: Hoehe der Kante und Breite schwanken entlang des Griffs
+    wob = noise.noise(Vector((x * 9.0 + h["x"] * 3.1, h["z"] * 5.7, 1.3)))
+    dz += 0.025 * wob
+    w *= 1.0 + 0.25 * noise.noise(Vector((h["x"] * 7.3, h["z"] * 4.1, 2.9)))
     if t == "sloper":       # runder Buckel
         return 0.06 * math.exp(-((dx / (w * 0.5)) ** 2 + (dz / 0.09) ** 2) * 1.3)
     if abs(dx) > w / 2 + 0.03 or dz < -0.2 or dz > 0.14:
@@ -183,7 +187,7 @@ def surface_point(x, z, fine=True, holds=True):
     if DUFOUR:
         # echter Fels + eigenes Relief zur Kletterseite hin; am Rand knapp hinter das Gelaende
         f = edge_fade(x, z)
-        inner = max(0.03, 0.10 + 0.8 * detail(x, z, fine))
+        inner = max(0.12, 0.16 + 0.8 * detail(x, z, fine))   # sicher vor dem Gelaendenetz
         off = f * inner - (1 - f) * 0.06
         return Vector((x, real_depth(x, z) - off - hold, z))
     return Vector((x, profile_y(z) - detail(x, z, fine) - hold, z))
@@ -290,11 +294,11 @@ def make_source_material():
     chalk_attr.attribute_name = "chalk"
     chalk_fac = nodes.new("ShaderNodeMath")
     chalk_fac.operation = "MULTIPLY"
-    chalk_fac.inputs[1].default_value = 0.5
+    chalk_fac.inputs[1].default_value = 0.75
     links.new(chalk_attr.outputs["Fac"], chalk_fac.inputs[0])
     chalk_mix = nodes.new("ShaderNodeMix")
     chalk_mix.data_type = "RGBA"
-    chalk_mix.inputs["B"].default_value = (0.62, 0.61, 0.6, 1)
+    chalk_mix.inputs["B"].default_value = (0.8, 0.79, 0.77, 1)
     links.new(chalk_fac.outputs["Value"], chalk_mix.inputs["Factor"])
     links.new(cav_mix.outputs["Result"], chalk_mix.inputs["A"])
     links.new(chalk_mix.outputs["Result"], bsdf.inputs["Base Color"])

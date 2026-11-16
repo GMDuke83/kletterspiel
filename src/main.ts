@@ -218,6 +218,8 @@ async function start(): Promise<void> {
     rig.distance = 5;
   }
   if (params.has('dist')) rig.distance = Number(params.get('dist'));
+  if (params.has('pitch')) rig.pitch = Number(params.get('pitch'));
+  if (params.has('yaw')) rig.yaw = Number(params.get('yaw'));
   // ?view=valley -> Aussicht ins Tal (wie Taste V), ?view=side -> Kamera seitlich und weit weg
   if (params.get('view') === 'valley') rig.lookout = true;
   if (params.get('view') === 'side') {
