@@ -117,7 +117,12 @@ export class Climber {
   }
 
   canReach(side: Side, g: Grip): boolean {
-    return this.shoulder(side).distanceTo(g.position) <= REACH;
+    // Abstand Schulter -> Griff; die Tiefe (in die Wand hinein) zaehlt nur teilweise,
+    // weil sich der Koerper an geneigten Platten zur Wand lehnt.
+    const d = g.position.clone().sub(this.shoulder(side));
+    const depth = d.dot(this.out);
+    d.addScaledVector(this.out, -depth * 0.6);
+    return d.length() <= REACH;
   }
 
   /** Versucht, mit einer Hand einen Griff zu greifen. Gibt eine Meldung zurueck. */

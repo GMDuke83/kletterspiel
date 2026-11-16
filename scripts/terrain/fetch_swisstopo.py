@@ -3,8 +3,11 @@ Laedt swissALTI3D (2 m) und SWISSIMAGE (2 m) Kacheln fuer einen LV95-Ausschnitt
 ueber die offizielle STAC-API von data.geo.admin.ch.
 
     python scripts/terrain/fetch_swisstopo.py 2630 2636 1084 1090
+    python scripts/terrain/fetch_swisstopo.py 2633 2634 1087 1088 --hires
 
 Argumente: E_min E_max N_min N_max in km (LV95, Kachelraster 1 km).
+--hires: statt 2 m die feinsten Stufen laden (swissALTI3D 0,5 m, SWISSIMAGE 10 cm)
+         nach raw/alti_05/ und raw/image_010/.
 Ziel: assets-src/terrain/raw/{alti,image}/   (per .gitignore nicht im Repo)
 Geodaten (c) swisstopo - freie Nutzung mit Quellenangabe (OGD).
 """
@@ -56,6 +59,10 @@ def lv95_corner_to_wgs(e, n):
 
 def main():
     e0, e1, n0, n1 = map(int, sys.argv[1:5])
+    if "--hires" in sys.argv:
+        COLLECTIONS.clear()
+        COLLECTIONS["alti_05"] = ("ch.swisstopo.swissalti3d", "swissalti3d", 0.5)
+        COLLECTIONS["image_010"] = ("ch.swisstopo.swissimage-dop10", "swissimage-dop10", 0.1)
     log = []
     for kind, (coll, prefix, gsd) in COLLECTIONS.items():
         out_dir = os.path.join(RAW, kind)
@@ -77,7 +84,7 @@ def main():
                     urllib.request.urlretrieve(asset["href"], dst)
                 log.append(f"{kind} {e}-{n}: {item['id']} ({os.path.getsize(dst) // 1024} KB)")
                 print(log[-1], flush=True)
-    with open(os.path.join(RAW, "download_log.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(RAW, "download_log.txt"), "a", encoding="utf-8") as f:
         f.write("Geodaten (c) swisstopo\n" + "\n".join(log) + "\n")
 
 

@@ -26,17 +26,22 @@
     "E": 2633336.8,
     "N": 1087338.1,
     "position": [
-      131.82,
-      4599.18,
-      6.91
+      131.8,
+      4598.683,
+      6.9
     ],
     "yaw": 2.8549,
     "slopeDeg": 65.3,
-    "facingDeg": 16.4
+    "facingDeg": 16.4,
+    "file": "assets/dufour_wall.glb",
+    "size": [
+      8.0,
+      13.0
+    ]
   },
   "terrain": {
     "file": "assets/dufourspitze_terrain.glb",
-    "triangles": 311784,
+    "triangles": 296031,
     "lodSteps": [
       4.0,
       14.0,
@@ -46,5 +51,29 @@
       300.0,
       1800.0
     ]
-  }
+  },
+  "near": {
+    "file": "assets/dufourspitze_near.glb",
+    "fileLow": "assets/dufourspitze_near_low.glb",
+    "bounds": {
+      "E0": 2633156.8,
+      "N0": 1087158.1,
+      "E1": 2633516.8,
+      "N1": 1087518.1
+    },
+    "meshStep": 1.2,
+    "imagePx": 0.1,
+    "triangles": 182335,
+    "deshadowGain": [
+      1.75,
+      1.75,
+      1.75
+    ],
+    "shadowFraction": 0.155
+  },
+  "rockColor": [
+    0.44,
+    0.43,
+    0.431
+  ]
 }

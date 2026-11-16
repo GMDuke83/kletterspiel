@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { applyTerrainDetail, type TerrainDetailOptions } from '../render/terrainMaterial';
 
 /**
- * Laedt das Gelaende-GLB (aus scripts/terrain/build_terrain.py).
+ * Laedt ein Gelaende-GLB (aus scripts/terrain/build_terrain.py bzw. build_near.py).
  * Koordinaten: x = Osten, y = Hoehe ueber Meer, z = Sueden (Meter, 1:1).
+ * detail = null -> einfache Darstellung (Qualitaet "niedrig").
  */
 export async function loadTerrain(
   url: string,
   renderer: THREE.WebGLRenderer,
+  detail: TerrainDetailOptions | null,
   onProgress?: (fraction: number) => void,
 ): Promise<THREE.Object3D> {
   const gltf = await new GLTFLoader().loadAsync(url, (e) => {
@@ -19,11 +22,11 @@ export async function loadTerrain(
       o.receiveShadow = true;
       const mat = o.material as THREE.MeshStandardMaterial;
       if (mat.map) mat.map.anisotropy = maxAniso;
-      // Das Luftbild enthaelt schon echtes Licht und Schatten: Sonnenlicht nur abgeschwaecht wirken lassen
       mat.roughness = 1;
+      mat.envMapIntensity = 0.6;
       // beidseitig, damit die senkrechten "Schuerzen" zwischen den Detailstufen von allen Seiten Spalten abdecken
       mat.side = THREE.DoubleSide;
-      mat.envMapIntensity = 0.6;
+      if (detail) applyTerrainDetail(mat, detail);
     }
   });
   return gltf.scene;

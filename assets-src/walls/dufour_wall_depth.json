@@ -1,0 +1,17 @@
+{
+  "step": 0.05,
+  "width": 8.0,
+  "height": 13.0,
+  "x0": -4.0,
+  "z0": 0.0,
+  "shape": [
+    261,
+    161
+  ],
+  "rock_rgb": [
+    0.4396737217903137,
+    0.42979153990745544,
+    0.43070274591445923
+  ],
+  "note": "depth[z_index, x_index] = Abstand von der Wandebene in den Berg (m); Blender: X = x, Y = depth, Z = z (Kletterseite schaut nach -Y)"
+}

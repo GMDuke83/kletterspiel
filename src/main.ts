@@ -16,7 +16,21 @@ const params = new URLSearchParams(location.search);
 /** ?noterrain -> nur Testwand ohne Gelaende (schneller Start) */
 const useTerrain = !params.has('noterrain');
 
+// Qualitaet: "hoch" (Nahbereich 10 cm, Detail-Shader, grosse Schatten) oder "niedrig"
+function readQuality(): 'high' | 'low' {
+  const q = params.get('q');
+  if (q === 'low' || q === 'high') return q;
+  try {
+    return localStorage.getItem('quality') === 'low' ? 'low' : 'high';
+  } catch {
+    return 'high';
+  }
+}
+const quality = readQuality();
+const high = quality === 'high';
+
 const renderer = createRenderer(document.body);
+if (!high) renderer.setPixelRatio(1);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 40000);
 const env = createEnvironment(
@@ -24,7 +38,7 @@ const env = createEnvironment(
   renderer,
   useTerrain
     ? // Sommerabend: Sonne aus West-Nordwest streift die Nordwand
-      { ground: false, haze: true, sunAzimuthDeg: -112, sunElevationDeg: 22 }
+      { ground: false, haze: true, sunAzimuthDeg: -112, sunElevationDeg: 22, shadowMapSize: high ? 4096 : 1024 }
     : { ground: true },
 );
 
@@ -34,44 +48,66 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Qualitaets-Schalter im HUD
+const qBtn = document.getElementById('quality') as HTMLButtonElement;
+qBtn.textContent = `Qualität: ${high ? 'hoch' : 'niedrig'}`;
+qBtn.addEventListener('click', () => {
+  try {
+    localStorage.setItem('quality', high ? 'low' : 'high');
+  } catch {
+    /* ohne Speicher: nur per ?q=low */
+  }
+  const u = new URL(location.href);
+  u.searchParams.set('q', high ? 'low' : 'high');
+  location.href = u.toString();
+});
+
 const loadingEl = document.getElementById('loading')!;
-const progress = { wall: 0, terrain: useTerrain ? 0 : 1 };
-function showProgress(): void {
-  const p = useTerrain ? progress.wall * 0.15 + progress.terrain * 0.85 : progress.wall;
-  loadingEl.textContent = `lade ${useTerrain ? 'Dufourspitze' : 'Wand'} … ${Math.round(p * 100)} %`;
+const progress: Record<string, number> = {};
+const weights: Record<string, number> = useTerrain
+  ? { wall: 0.1, terrain: 0.55, near: high ? 0.35 : 0.05 }
+  : { wall: 1 };
+function onProgress(key: string) {
+  return (f: number) => {
+    progress[key] = f;
+    let p = 0;
+    for (const k in weights) p += (progress[k] ?? 0) * weights[k];
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    loadingEl.textContent = `lade ${useTerrain ? 'Dufourspitze' : 'Wand'} … ${Math.round((p / total) * 100)} %`;
+  };
 }
 
 async function start(): Promise<void> {
-  showProgress();
+  onProgress('wall')(0);
   const wallPlace = useTerrain
     ? { position: route.wall.position as THREE.Vector3Tuple, yaw: route.wall.yaw }
     : {};
-  const [wall, terrain] = await Promise.all([
-    loadWall(`${BASE}assets/test_wall.glb`, wallPlace, (f) => {
-      progress.wall = f;
-      showProgress();
-    }),
+  const o = route.origin;
+  const detail = high && useTerrain && !params.has('nodetail')
+    ? {
+        detail: await new THREE.TextureLoader().loadAsync(`${BASE}assets/detail_rock.jpg`),
+        tileSize: 6,
+        bump: params.has('bump') ? Number(params.get('bump')) : undefined,
+        albedo: params.has('albedo') ? Number(params.get('albedo')) : undefined,
+        bounds: {
+          minX: route.bounds.E0 - o.E,
+          maxX: route.bounds.E1 - o.E,
+          minZ: -(route.bounds.N1 - o.N),
+          maxZ: -(route.bounds.N0 - o.N),
+        },
+      }
+    : null;
+  const [wall, terrain, near] = await Promise.all([
+    loadWall(`${BASE}${useTerrain ? route.wall.file : 'assets/test_wall.glb'}`, wallPlace, onProgress('wall')),
+    useTerrain ? loadTerrain(`${BASE}${route.terrain.file}`, renderer, detail, onProgress('terrain')) : null,
     useTerrain
-      ? loadTerrain(`${BASE}${route.terrain.file}`, renderer, (f) => {
-          progress.terrain = f;
-          showProgress();
-        })
-      : Promise.resolve(null),
+      ? loadTerrain(`${BASE}${high ? route.near.file : route.near.fileLow}`, renderer, detail, onProgress('near'))
+      : null,
   ]);
   scene.add(wall.root);
   if (terrain) scene.add(terrain);
+  if (near) scene.add(near);
   const groundY = useTerrain ? route.wall.position[1] : 0;
-
-  if (useTerrain) {
-    // kleiner Felsabsatz am Wandfuss (das Gelaende faellt davor steil ab)
-    const ledge = new THREE.Mesh(
-      new THREE.BoxGeometry(6.4, 2.0, 2.2),
-      new THREE.MeshStandardMaterial({ color: 0x55524e, roughness: 0.95 }),
-    );
-    ledge.position.set(0, -1.0, 0.7);
-    ledge.castShadow = ledge.receiveShadow = true;
-    wall.root.add(ledge);
-  }
 
   // Abstand zur Wand messen (Raycast gegen die sichtbaren Wand-Meshes)
   const ray = new THREE.Raycaster();

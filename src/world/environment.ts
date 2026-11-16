@@ -9,6 +9,7 @@ export interface EnvironmentOptions {
   /** Sonnenstand: Richtung (Grad, 0 = +Z/Sueden, 90 = +X/Osten, -90 = Westen) und Hoehe ueber Horizont */
   sunAzimuthDeg?: number;
   sunElevationDeg?: number;
+  shadowMapSize?: number;
 }
 
 export interface Environment {
@@ -57,7 +58,9 @@ export function createEnvironment(
 
   const sun = new THREE.DirectionalLight(0xfff4e6, 3.0);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  const sm = opts.shadowMapSize ?? 2048;
+  sun.shadow.mapSize.set(sm, sm);
+  sun.shadow.radius = 3; // weichere Schattenkanten
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.02;
   const cam = sun.shadow.camera;

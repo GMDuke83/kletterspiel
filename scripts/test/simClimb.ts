@@ -76,7 +76,7 @@ console.log(`ERGEBNIS: ${climber.state}, max. Höhe ${maxH.toFixed(1)} m, Zeit $
 if (process.env.DEBUG) {
   const sh = climber.shoulder('left');
   console.log('Schulter links', sh.toArray().map((v) => v.toFixed(2)).join(','));
-  for (const g of grips.filter((g) => g.position.y > 7.5 && g.position.y < 10.5)) {
+  for (const g of grips.filter((g) => g.position.y < climber.body.y + 2.5)) {
     console.log(g.name, g.position.toArray().map((v) => v.toFixed(2)).join(','), 'dL', sh.distanceTo(g.position).toFixed(2), 'dR', climber.shoulder('right').distanceTo(g.position).toFixed(2));
   }
 }

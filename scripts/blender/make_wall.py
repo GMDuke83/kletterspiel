@@ -35,6 +35,24 @@ REPORT_PATH = os.path.join(ROOT, "scripts", "blender", "make_wall_report.json")
 
 SEED = 7
 WIDTH, HEIGHT = 6.0, 12.0
+
+# --dufour: Wandform aus dem echten Gelaende (Tiefenkarte von scripts/terrain/build_near.py)
+ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+DUFOUR = "--dufour" in ARGS
+REAL_DEPTH = None
+ROCK_RGB = (0.42, 0.40, 0.37)
+if DUFOUR:
+    import numpy as np
+    _meta = json.load(open(os.path.join(ROOT, "assets-src", "walls", "dufour_wall_depth.json"), encoding="utf-8"))
+    REAL_DEPTH = np.load(os.path.join(ROOT, "assets-src", "walls", "dufour_wall_depth.npy"))
+    REAL_STEP = _meta["step"]
+    WIDTH, HEIGHT = _meta["width"], _meta["height"]
+    ROCK_RGB = tuple(_meta["rock_rgb"])
+    BLEND_PATH = os.path.join(ROOT, "assets-src", "walls", "dufour_wall.blend")
+    GLB_PATH = os.path.join(ROOT, "public", "assets", "dufour_wall.glb")
+    PNG_PATH = os.path.join(ROOT, "previews", "dufour_wall_blender.png")
+    REPORT_PATH = os.path.join(ROOT, "scripts", "blender", "make_wall_report.json")
+TOP = HEIGHT - 1.0        # oberster Griff (Gipfelgriff) knapp unter der Oberkante
 HIGH_STEP = 0.03          # Rasterabstand des hochaufgeloesten Meshes (m)
 TARGET_TRIS = 12000       # sichtbares Wand-Mesh
 COL_STEP = 0.5            # Rasterabstand des Kollisions-Meshes
@@ -95,7 +113,31 @@ def detail(x, z, fine=True):
     return d * (0.4 + 0.6 * edge)
 
 
+def real_depth(x, z):
+    """bilineare Tiefe des echten Felsens hinter der Wandebene (m)."""
+    rows, cols = REAL_DEPTH.shape
+    c = min(max((x + WIDTH / 2) / REAL_STEP, 0), cols - 1.001)
+    r = min(max(z / REAL_STEP, 0), rows - 1.001)
+    c0, r0 = int(c), int(r)
+    fc, fr = c - c0, r - r0
+    d = REAL_DEPTH
+    return float((d[r0, c0] * (1 - fc) + d[r0, c0 + 1] * fc) * (1 - fr)
+                 + (d[r0 + 1, c0] * (1 - fc) + d[r0 + 1, c0 + 1] * fc) * fr)
+
+
+def edge_fade(x, z):
+    """1 in der Wandmitte, 0 am Rand: dort laeuft die Wand in das echte Gelaende aus."""
+    return (smoothstep(WIDTH / 2, WIDTH / 2 - 0.9, abs(x))
+            * smoothstep(0.0, 0.5, z) * smoothstep(HEIGHT, HEIGHT - 0.9, z))
+
+
 def surface_point(x, z, fine=True):
+    if DUFOUR:
+        # echter Fels + eigenes Relief zur Kletterseite hin; am Rand knapp hinter das Gelaende
+        f = edge_fade(x, z)
+        inner = max(0.03, 0.10 + 0.8 * detail(x, z, fine))
+        off = f * inner - (1 - f) * 0.06
+        return Vector((x, real_depth(x, z) - off, z))
     return Vector((x, profile_y(z) - detail(x, z, fine), z))
 
 
@@ -161,8 +203,9 @@ def make_source_material():
     noise_n.inputs["Roughness"].default_value = 0.62
     base_ramp = nodes.new("ShaderNodeValToRGB")
     e = base_ramp.color_ramp.elements
-    e[0].position, e[0].color = 0.32, (0.16, 0.155, 0.15, 1)
-    e[1].position, e[1].color = 0.72, (0.42, 0.40, 0.37, 1)
+    lin = [c ** 2.2 for c in ROCK_RGB]   # Felsfarbe aus dem Luftbild (sRGB -> linear)
+    e[0].position, e[0].color = 0.32, (lin[0] * 0.45, lin[1] * 0.45, lin[2] * 0.45, 1)
+    e[1].position, e[1].color = 0.72, (lin[0] * 1.35, lin[1] * 1.35, lin[2] * 1.35, 1)
     links.new(texco.outputs["Object"], noise_n.inputs["Vector"])
     links.new(noise_n.outputs["Fac"], base_ramp.inputs["Fac"])
 
@@ -229,7 +272,7 @@ def bake(low, high):
     low.data.materials.append(mat)
 
     def new_image(suffix, non_color):
-        img = bpy.data.images.new(f"test_wall_{suffix}", TEX_W, TEX_H, alpha=False)
+        img = bpy.data.images.new(f"{'dufour_wall' if DUFOUR else 'test_wall'}_{suffix}", TEX_W, TEX_H, alpha=False)
         if non_color:
             img.colorspace_settings.name = "Non-Color"
         node = nodes.new("ShaderNodeTexImage")
@@ -300,7 +343,7 @@ def layout_grips():
         {"x": 0.32, "z": 1.65, "type": "jug", "start": 1},
     ]
     z, row = 2.1, 0
-    while z < 11.25:
+    while z < TOP - 0.45:
         cx = route_center(z)
         a = {"x": cx + rnd.uniform(-0.4, -0.12), "z": z + rnd.uniform(-0.06, 0.06)}
         b = {"x": cx + rnd.uniform(0.12, 0.4), "z": z + rnd.uniform(-0.06, 0.06)}
@@ -310,12 +353,13 @@ def layout_grips():
         if rnd.random() < 0.5:   # Seitengriff als Alternative
             side = rnd.choice((-1, 1))
             c = {"x": cx + side * rnd.uniform(0.7, 1.1), "z": z + rnd.uniform(-0.15, 0.15)}
-            c["x"] = max(-WIDTH / 2 + 0.4, min(WIDTH / 2 - 0.4, c["x"]))
+            lim = WIDTH / 2 - (1.2 if DUFOUR else 0.4)
+            c["x"] = max(-lim, min(lim, c["x"]))
             c["type"] = pick_type(z, rnd)
             grips.append(c)
         z += rnd.uniform(0.38, 0.5)
         row += 1
-    grips.append({"x": route_center(11.7), "z": 11.7, "type": "jug", "summit": 1})
+    grips.append({"x": route_center(TOP), "z": TOP, "type": "jug", "summit": 1})
     return grips
 
 

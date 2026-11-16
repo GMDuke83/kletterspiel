@@ -36,6 +36,7 @@ CHUNK = 500.0                 # Blockgroesse (m)
 NEAR_R, MID_R = 300.0, 1800.0  # Radien der Detailstufen um die Wand
 STEPS = (4.0, 14.0, 40.0)
 TEX_QUALITY = 86
+NEAR_HALF = 180.0             # halbe Kantenlaenge des hochaufgeloesten Nahbereichs (build_near.py)
 
 
 # ---------------------------------------------------------------- Mosaik
@@ -83,14 +84,15 @@ def fill_gaps(dem, img, have):
 
 # ---------------------------------------------------------------- Abtasten
 class Field:
-    def __init__(self, dem, bounds):
+    def __init__(self, dem, bounds, px=PX):
         self.dem = dem
+        self.px = px
         self.E0, self.N0, self.E1, self.N1 = bounds
 
     def h(self, E, N):
         """bilineare Hoehe an LV95-Koordinaten (Arrays)."""
-        c = (E - self.E0) / PX - 0.5
-        r = (self.N1 - N) / PX - 0.5
+        c = (E - self.E0) / self.px - 0.5
+        r = (self.N1 - N) / self.px - 0.5
         H, W = self.dem.shape
         c = np.clip(c, 0, W - 1.001)
         r = np.clip(r, 0, H - 1.001)
@@ -148,7 +150,8 @@ def find_wall_site(field, summit):
 
 
 # ---------------------------------------------------------------- Mesh
-def build_mesh(field, bounds, wall_EN, origin):
+def build_mesh(field, bounds, wall_EN, origin, hole=None):
+    """hole = (E0, N0, E1, N1): dort liegt das feinere Nahbereichs-Netz, grobe Dreiecke weglassen."""
     E0, N0, E1, N1 = bounds
     oE, oN = origin
     pos, nor, uv, idx = [], [], [], []
@@ -181,6 +184,11 @@ def build_mesh(field, bounds, wall_EN, origin):
             a, b, c_, d_ = g[:-1, :-1], g[:-1, 1:], g[1:, :-1], g[1:, 1:]
             # Zeile 0 = Norden (z klein), Spalte = Osten: Dreiecke gegen den Uhrzeigersinn von oben
             tri = np.stack([a, c_, b, b, c_, d_], -1).reshape(-1, 3)
+            if hole is not None:
+                cen = P[tri - base].mean(1)                 # Schwerpunkte (Spielkoordinaten)
+                cE, cN = cen[:, 0] + oE, -cen[:, 2] + oN
+                inside = (cE > hole[0]) & (cE < hole[2]) & (cN > hole[1]) & (cN < hole[3])
+                tri = tri[~inside]
             idx.append(tri)
             count += (n + 1) * (n + 1)
             stats[s] += len(tri)
@@ -274,7 +282,9 @@ def main():
     _, wE, wN, wH, slope, az, n = site
     print(f"Wand: E {wE:.0f} N {wN:.0f} H {wH:.0f} m, Neigung {slope:.0f} Grad, Blick nach {az:.0f} Grad")
 
-    P, Nm, T, I, stats = build_mesh(field, bounds, (wE, wN), summit)
+    m = NEAR_HALF - 3.0     # etwas Ueberlappung mit dem Nahbereich (dessen Schuerzen decken den Rand)
+    hole = (wE - m, wN - m, wE + m, wN + m)
+    P, Nm, T, I, stats = build_mesh(field, bounds, (wE, wN), summit, hole)
     tris = len(I) // 3
     print(f"Dreiecke: {tris} ({', '.join(f'{int(s)} m: {v}' for s, v in stats.items())})")
 
