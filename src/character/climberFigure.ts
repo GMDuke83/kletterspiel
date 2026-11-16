@@ -15,6 +15,8 @@ interface FootState {
   to: THREE.Vector3;
   t: number; // 1 = steht
 }
+/** Mindestzeit zwischen zwei Fuss-Schritten (s) - verhindert Zucken */
+const STEP_COOLDOWN = 0.35;
 
 /**
  * Eigene Kletterfigur (scripts/blender/make_climber.py) mit prozeduraler Bewegung:
@@ -36,6 +38,7 @@ export class ClimberFigure {
   };
   private torso = new THREE.Vector3();
   private human = false;
+  private stepCooldown = 0;
   private anchorH = ANCHOR_H;
 
   private constructor(root: THREE.Object3D) {
@@ -46,6 +49,20 @@ export class ClimberFigure {
       if (o instanceof THREE.Mesh) {
         o.castShadow = true;
         o.frustumCulled = false;
+        // Haare/Brauen/Wimpern: Alpha-Textur ausstanzen statt halbtransparent (sonst Flecken/Glatze)
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          const n = (m.name + ' ' + o.name).toLowerCase();
+          if (/hair|short02|eyebrow|eyelash/.test(n)) {
+            m.transparent = false;
+            m.alphaTest = 0.5;
+            m.depthWrite = true;
+            m.side = THREE.DoubleSide;
+          } else {
+            m.transparent = false;
+            m.depthWrite = true;
+          }
+          m.needsUpdate = true;
+        }
       }
     });
     for (const b of this.bones.values()) {
@@ -166,16 +183,16 @@ export class ClimberFigure {
     // Ausrichtung: Gesicht zur Wand (-out), Oberkoerper leicht zur Wand geneigt
     const yaw = Math.atan2(-out.x, -out.z);
     const qYaw = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-    const qLean = new THREE.Quaternion().setFromAxisAngle(right, -(this.human ? LEAN * 1.6 : LEAN));
+    const qLean = new THREE.Quaternion().setFromAxisAngle(right, -(this.human ? LEAN * 0.6 : LEAN));
     this.root.quaternion.copy(qLean.multiply(qYaw));
 
     // Zittern bei wenig Ausdauer
     const held = (['left', 'right'] as Side[]).filter((s) => c.holding(c.hands[s]));
     const minSt = held.length ? Math.min(...held.map((s) => c.hands[s].stamina)) : 1;
-    const shake = Math.max(0, 0.45 - minSt) * 0.03;
+    const shake = Math.max(0, 0.35 - minSt) * 0.02;
     this.torso.copy(c.body);
-    this.torso.x += Math.sin(time * 37) * shake;
-    this.torso.y += Math.sin(time * 29 + 1) * shake * 0.6 + Math.sin(time * 1.6) * 0.006; // Atmen
+    this.torso.addScaledVector(right, Math.sin(time * 31) * shake);
+    // Atmen nur im Brustkorb (siehe unten), nicht am ganzen Koerper - sonst bewegen sich Knie/Fuesse
 
     // Oberkoerper so weit zu den Haenden ziehen, dass die Arme sie erreichen
     const armLen = (this.len.upper + this.len.fore + this.len.hand) * 0.97;
@@ -196,14 +213,15 @@ export class ClimberFigure {
       if (!n) break;
       this.torso.addScaledVector(shift, 1 / n);
     }
-    // nicht in den Fels
+    // nicht in den Fels; die realistische Figur steht mit etwas Abstand (Gewicht auf den Fuessen)
+    const clearance = this.human ? 0.3 : 0.2;
     const dWall = probe(this.torso, out);
-    if (dWall !== null && dWall < 0.2) this.torso.addScaledVector(out, 0.2 - dWall);
+    if (dWall !== null && dWall < clearance) this.torso.addScaledVector(out, clearance - dWall);
 
     const anchor = new THREE.Vector3(0, this.anchorH, 0).applyQuaternion(this.root.quaternion);
     this.root.position.copy(this.torso).sub(anchor);
     // realistische Figur ist tiefer (Brust/Rucksack): Huefte etwas naeher an den Fels
-    if (this.human) this.root.position.addScaledVector(out, -0.06);
+
     this.root.updateMatrixWorld(true);
 
     // ------------------------------------------------ Arme
@@ -234,11 +252,12 @@ export class ClimberFigure {
       this.aim(this.bone(`hand.${k}`), target);
       // Finger: am Griff gekruemmt, sonst halb offen
       const h = c.hands[s];
-      this.curlFingers(s === 'left' ? 'l' : 'r', falling ? 0.15 : h.grip ? 1 : 0.35);
+      this.curlFingers(s === 'left' ? 'l' : 'r', falling ? 0.1 : h.grip ? 0.6 : 0.2);
     }
 
     // ------------------------------------------------ Beine
     const legLen = this.len.thigh + this.len.shin;
+    this.stepCooldown -= dt;
     for (const s of ['left', 'right'] as Side[]) {
       const k = s === 'left' ? 'L' : 'R';
       const sideV = right.clone().multiplyScalar(s === 'left' ? -1 : 1);
@@ -276,15 +295,18 @@ export class ClimberFigure {
           f.t = 1;
         }
         const other = this.feet[s === 'left' ? 'right' : 'left'];
-        const tooFar = f.planted.distanceTo(ideal) > 0.33 || f.planted.distanceTo(hip) > legLen * 0.98;
-        if (f.t >= 1 && tooFar && other.t >= 1) {
+        // nur nachsetzen, wenn der Fuss wirklich falsch steht (Hysterese gegen Zucken)
+        const overstretched = f.planted.distanceTo(hip) > legLen * 0.99;
+        const tooHigh = hip.y - f.planted.y < 0.42;
+        const lagging = ideal.y - f.planted.y > 0.4 || f.planted.distanceTo(ideal) > 0.55;
+        if (f.t >= 1 && other.t >= 1 && this.stepCooldown <= 0 && (overstretched || tooHigh || lagging)) {
           f.from.copy(f.planted);
           f.to.copy(ideal);
           f.t = 0;
+          this.stepCooldown = STEP_COOLDOWN;
         }
         if (f.t < 1) {
-          f.t = Math.min(1, f.t + dt / 0.22);
-          f.to.lerp(ideal, 0.2);
+          f.t = Math.min(1, f.t + dt / 0.25);
           f.planted.lerpVectors(f.from, f.to, f.t * f.t * (3 - 2 * f.t)).addScaledVector(out, Math.sin(Math.PI * f.t) * 0.08);
         }
         foot = f.planted;
@@ -296,6 +318,10 @@ export class ClimberFigure {
       // Fussspitze zur Wand
       this.aim(this.bone(`foot.${k}`), foot.clone().addScaledVector(out, -0.2).addScaledVector(UP, -0.05));
     }
+
+    // ------------------------------------------------ Atmen: Brustkorb hebt sich leicht
+    const chest = this.bone('chest');
+    if (chest) chest.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(time * 1.6) * 0.012));
 
     // ------------------------------------------------ Kopf
     const head = this.bone('head');

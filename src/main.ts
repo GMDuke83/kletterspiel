@@ -145,8 +145,8 @@ async function start(): Promise<void> {
   let figure: ClimberFigure | null = null;
   let placeholder: PlaceholderFigure | null = null;
   try {
-    // realistische Figur (MPFB/MakeHuman, CC0) noch in Arbeit: nur mit ?figure=human
-    const simple = params.get('figure') !== 'human';
+    // realistische Figur (MPFB/MakeHuman, CC0) ist Standard; ?figure=simple zeigt die alte eigene Figur
+    const simple = params.get('figure') === 'simple';
     figure = await ClimberFigure.load(`${BASE}assets/${simple ? 'climber.glb' : 'climber_human.glb'}`);
     figure.footholds = wall.feet;
     scene.add(figure.root);
@@ -236,7 +236,7 @@ async function start(): Promise<void> {
   let reduced = false;
   let fpsTime = 0;
   const clock = new THREE.Clock();
-  (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig };
+  (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig, figure };
   document.body.dataset.loaded = 'true';
 
   renderer.setAnimationLoop(() => {

@@ -21,7 +21,7 @@ export class GripAim {
     dom.addEventListener('pointermove', (e) => this.mouse.set(e.clientX, e.clientY));
     dom.addEventListener('pointerleave', () => this.mouse.set(-9999, -9999));
 
-    this.ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true });
+    this.ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.014, 8, 32), this.ringMat);
     this.ring.renderOrder = 10;
     this.ring.visible = false;
@@ -69,6 +69,12 @@ export class GripAim {
     if (best) {
       this.ring.position.copy(best.position).addScaledVector(best.normal, 0.03);
       this.ring.quaternion.copy(camera.quaternion); // Ring immer zur Kamera gedreht
+      // feste Bildschirmgroesse (~28 px Durchmesser), leicht zur Kamera hin versetzt
+      const cam = camera as THREE.PerspectiveCamera;
+      const dist = cam.position.distanceTo(this.ring.position);
+      const worldPerPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / height;
+      this.ring.scale.setScalar((14 * worldPerPx) / 0.11);
+      this.ring.position.addScaledVector(this.v.copy(cam.position).sub(this.ring.position).normalize(), 0.06);
       this.ringMat.color.setHex(reachable(best) ? 0x4cd964 : 0xff453a);
       this.hoverDot.position.copy(best.position).addScaledVector(best.normal, 0.03);
       (this.hoverDot.material as THREE.MeshBasicMaterial).color.setHex(

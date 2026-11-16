@@ -24,7 +24,7 @@ import zipfile
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ZIP = os.path.join(ROOT, "assets-src", "mpfb", "makehuman_system_assets_cc0.zip")
@@ -38,8 +38,13 @@ NEEDED = ("packs/", "skins/young_caucasian_male/", "clothes/male_casualsuit02/",
           "hair/short02/", "eyebrows/eyebrow001/", "eyelashes/eyelashes01/", "eyes/")
 SKIN = "skins/young_caucasian_male/young_caucasian_male.mhmat"
 CLOTHES = ["clothes/male_casualsuit02/male_casualsuit02.mhclo", "clothes/shoes03/shoes03.mhclo"]
-# Haare liegen unter dem Helm; Brauen/Wimpern (Alpha-Texturen) erzeugten im Browser Flecken -> weggelassen
-BODYPARTS = {}
+# Haare, Brauen, Wimpern haben Alpha-Texturen: im Spiel mit alphaTest (Ausstanzen) statt Transparenz
+BODYPARTS = {
+    "Hair": "hair/short02/short02.mhclo",
+    "Eyebrows": "eyebrows/eyebrow001/eyebrow001.mhclo",
+    "Eyelashes": "eyelashes/eyelashes01/eyelashes01.mhclo",
+}
+ALPHA_PARTS = ("hair", "short02", "eyebrow", "eyelash")
 TEX_MAX = 1024   # Texturen fuers Web verkleinern
 
 
@@ -156,13 +161,16 @@ def add_gear(rig, body):
 
     mats = {}
     for key, col, rough in (("helmet", (0.85, 0.72, 0.04), 0.35), ("harness", (0.02, 0.08, 0.32), 0.6),
-                            ("pack", (0.04, 0.14, 0.07), 0.75), ("buckle", (0.6, 0.6, 0.62), 0.3)):
+                            ("pack", (0.04, 0.14, 0.07), 0.75), ("buckle", (0.6, 0.6, 0.62), 0.3),
+                            ("rope", (0.55, 0.05, 0.03), 0.8), ("black", (0.02, 0.02, 0.025), 0.5),
+                            ("lens", (0.15, 0.25, 0.35), 0.1), ("lamp", (0.9, 0.9, 0.85), 0.3),
+                            ("steel", (0.55, 0.57, 0.6), 0.35), ("axe_shaft", (0.1, 0.2, 0.55), 0.4)):
         m = bpy.data.materials.new(f"gear_{key}")
         m.use_nodes = True
         p = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
         p.inputs["Base Color"].default_value = (*col, 1)
         p.inputs["Roughness"].default_value = rough
-        if key == "buckle":
+        if key in ("buckle", "steel"):
             p.inputs["Metallic"].default_value = 1.0
         mats[key] = m
 
@@ -189,7 +197,7 @@ def add_gear(rig, body):
     top = tail_pos("head")
     up = (top - head).normalized()
     hl = (top - head).length
-    c = head + up * (hl * 0.55)
+    c = head + up * (hl * 0.48)
     bm = bmesh.new()
     bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=1.0)
     # vorne hoeher abschneiden (Gesicht frei), hinten tiefer (Hinterkopf bedeckt)
@@ -201,10 +209,40 @@ def add_gear(rig, body):
     ret = bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.012)
     finish(bm, "helmet", "helmet", "head")
 
+    fwd = Vector((0, -1, 0))   # Figur schaut nach -Y
+
+    def box(center, size, mat, bone, name, bevel=0.0):
+        bm = bmesh.new()
+        ret = bmesh.ops.create_cube(bm, size=1.0)
+        for v in ret["verts"]:
+            v.co = Vector((v.co.x * size[0], v.co.y * size[1], v.co.z * size[2])) + center
+        if bevel:
+            bmesh.ops.bevel(bm, geom=list(bm.edges), offset=bevel, segments=2, affect="EDGES")
+        finish(bm, name, mat, bone)
+
+    def ring(center, radius, minor, axis, mat, bone, name, seg=20):
+        bm = bmesh.new()
+        ret = bmesh.ops.create_cone(bm, cap_ends=False, segments=seg, radius1=radius, radius2=radius, depth=minor)
+        if axis == "x":
+            bmesh.ops.rotate(bm, verts=ret["verts"], cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, "Y"))
+        elif axis == "y":
+            bmesh.ops.rotate(bm, verts=ret["verts"], cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, "X"))
+        bmesh.ops.translate(bm, verts=ret["verts"], vec=center)
+        finish(bm, name, mat, bone)
+
+    # Stirnlampe vorne am Helm + Gummiband
+    front = c + fwd * (ry + 0.012) + up * 0.01
+    box(front, (0.045, 0.022, 0.03), "black", "head", "headlamp", 0.004)
+    box(front + fwd * 0.012, (0.028, 0.004, 0.02), "lamp", "head", "headlamp_lens")
+    ring(c + up * 0.005, rx + 0.006, 0.014, "z", "black", "head", "headlamp_band", 28)
+    # Gletscherbrille auf dem Helm (hochgeschoben)
+    for sx in (-0.03, 0.03):
+        box(c + fwd * (ry * 0.75) + up * (rz * 0.72) + Vector((sx, 0, 0)), (0.045, 0.012, 0.028), "lens", "head", f"goggle_{sx > 0}", 0.004)
+
     # Gurt: Hueftring + zwei Beinschlaufen
     pelvis = head_pos("pelvis")
     bm = bmesh.new()
-    for (cx, cz, rx, ry, depth) in ((0.0, -0.035, 0.205, 0.15, 0.06),):
+    for (cx, cz, rx, ry, depth) in ((0.0, -0.035, 0.2, 0.145, 0.045),):
         ret = bmesh.ops.create_cone(bm, cap_ends=False, segments=28, radius1=1, radius2=1, depth=depth)
         for v in ret["verts"]:
             v.co = Vector((cx + v.co.x * rx, v.co.y * ry, v.co.z)) + pelvis + Vector((0, 0.005, cz))
@@ -218,6 +256,12 @@ def add_gear(rig, body):
         for v in ret["verts"]:
             v.co = Vector((v.co.x * 0.11, v.co.y * 0.115, v.co.z)) + p
         finish(bm, f"harness_leg_{side}", "harness", f"thigh_{side}")
+    # Karabiner/Expressen an den Materialschlaufen + Sicherungsgeraet vorne
+    for i, ang in enumerate((-2.2, -1.9, 1.9, 2.2)):
+        p = pelvis + Vector((math.sin(ang) * 0.2, -math.cos(ang) * 0.15, -0.075))
+        ring(p, 0.022, 0.006, "y", "steel", "pelvis", f"carabiner_{i}", 10)
+    box(pelvis + Vector((0, -0.165, -0.06)), (0.04, 0.02, 0.05), "steel", "pelvis", "belay_device", 0.005)
+    ring(pelvis + Vector((0, -0.16, -0.1)), 0.025, 0.012, "y", "rope", "pelvis", "rope_tiein", 12)
 
     # Rucksack direkt am Ruecken (Figur schaut nach -Y -> Ruecken bei +Y), mit Volumen und Traegern.
     # Rueckenflaeche: hinterster Punkt des Koerpers auf Brusthoehe
@@ -229,8 +273,20 @@ def add_gear(rig, body):
     ret = bmesh.ops.create_cube(bm, size=1.0)
     for v in ret["verts"]:
         v.co = Vector((v.co.x * 0.28, v.co.y * depth, v.co.z * 0.42)) + Vector((0, back_y + 0.015 + depth / 2, sp.z - 0.06))
-    bmesh.ops.bevel(bm, geom=list(bm.edges), offset=0.045, segments=4, affect="EDGES")
+    bmesh.ops.bevel(bm, geom=list(bm.edges), offset=0.065, segments=5, affect="EDGES")
     finish(bm, "backpack", "pack", "spine_03")
+    pack_c = Vector((0, back_y + 0.015 + depth / 2, sp.z - 0.06))
+    # Seilpuppe oben auf dem Rucksack
+    for k in range(3):
+        ring(pack_c + Vector((0, 0.0, 0.25 + k * 0.012)), 0.15 - k * 0.004, 0.012, "z", "rope", "spine_03", f"rope_coil_{k}", 24)
+    # Eispickel aussen am Rucksack (Schaft schraeg, Haue oben)
+    shaft_c = pack_c + Vector((0.06, depth / 2 + 0.015, 0.02))
+    bm = bmesh.new()
+    ret = bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=0.013, radius2=0.013, depth=0.55)
+    bmesh.ops.rotate(bm, verts=ret["verts"], cent=Vector(), matrix=Matrix.Rotation(math.radians(12), 3, "Y"))
+    bmesh.ops.translate(bm, verts=ret["verts"], vec=shaft_c)
+    finish(bm, "ice_axe_shaft", "axe_shaft", "spine_03")
+    box(shaft_c + Vector((0.06, 0, 0.27)), (0.2, 0.012, 0.03), "steel", "spine_03", "ice_axe_head", 0.004)
     for sx in (-0.085, 0.085):
         bm = bmesh.new()
         ret = bmesh.ops.create_cube(bm, size=1.0)
@@ -240,7 +296,7 @@ def add_gear(rig, body):
         for v in ret["verts"]:
             v.co = Vector((v.co.x * 0.035, v.co.y * 0.012, v.co.z * 0.24)) + Vector((sx, front_y - 0.012, sp.z + 0.1))
         finish(bm, f"strap_{'l' if sx > 0 else 'r'}", "pack", "spine_03")
-    log("Ausruestung: Helm, Gurt, Rucksack")
+    log("Ausruestung: Helm mit Stirnlampe und Gletscherbrille, Gurt mit Karabinern, Rucksack mit Seil und Eispickel")
     return objs
 
 
@@ -297,6 +353,8 @@ def main():
             continue
         for n in m.node_tree.nodes:
             if n.type == "BSDF_PRINCIPLED":
+                if any(k in m.name.lower() for k in ALPHA_PARTS):
+                    continue          # Alpha behalten (wird im Spiel ausgestanzt)
                 a = n.inputs["Alpha"]
                 for l in list(a.links):
                     m.node_tree.links.remove(l)

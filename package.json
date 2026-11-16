@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "rock": "scripts\\blender\\make_rock.cmd",
     "wall": "scripts\\blender\\make_wall.cmd",
+    "test:feet": "node scripts/test/footStability.mjs",
     "test:sim": "esbuild scripts/test/simClimb.ts --bundle --platform=node --log-level=warning --outfile=node_modules/.cache/simClimb.cjs && node node_modules/.cache/simClimb.cjs public/assets/test_wall.glb 600 && node node_modules/.cache/simClimb.cjs public/assets/dufour_wall.glb 600",
     "terrain": "python -I scripts/terrain/build_terrain.py && cd scripts/terrain && python -I -c \"import build_near; build_near.main()\""
   },

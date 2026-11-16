@@ -102,7 +102,7 @@ export function applyTerrainDetail(mat: THREE.MeshStandardMaterial, o: TerrainDe
            float k = gNear * mix(0.12, 0.7, rock) * uAlbedo;
            // Steile Flaechen in der Naehe: das von oben aufgenommene Luftbild ist dort verzerrt.
            // Stattdessen Fels-Fotostruktur mit der gemittelten Farbe der Umgebung (unscharfe Mip-Stufe).
-           float steepNear = (1.0 - smoothstep(0.38, 0.62, n.y)) * (1.0 - smoothstep(80.0, 450.0, dist)) * uAlbedo;
+           float steepNear = (1.0 - smoothstep(0.5, 0.75, n.y)) * (1.0 - smoothstep(120.0, 600.0, dist)) * uAlbedo;
            vec3 avg = texture2D(map, vMapUv, 6.0).rgb;
            avg = mix(avg, vec3(dot(avg, vec3(0.333))), 0.55);         // entsaettigt (kein Blaustich)
            avg = clamp(avg, vec3(0.08), vec3(0.45));                   // Fels, kein Schnee/Schatten-Schwarz
