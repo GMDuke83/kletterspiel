@@ -6,6 +6,8 @@ import type { WallProbe } from '../climbing/climber';
 const UP = new THREE.Vector3(0, 1, 0);
 const ANCHOR_H = 1.05; // Hoehe des Modell-Punkts, der auf climber.body liegt (Huefte/Bauch)
 const LEAN = THREE.MathUtils.degToRad(9); // Oberkoerper leicht zur Wand geneigt
+/** Drehsinn der Fingerkruemmung um die lokale X-Achse (per Screenshot geprueft) */
+const FINGER_SIGN = 1;
 
 interface FootState {
   planted: THREE.Vector3 | null;
@@ -46,8 +48,9 @@ export class ClimberFigure {
     });
     for (const b of this.bones.values()) {
       this.rest.set(b, b.quaternion.clone());
-      const child = b.children.find((c) => c instanceof THREE.Bone);
-      this.restDir.set(b, child ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0));
+      // Richtung zum Kind-Gelenk; bei mehreren Kindern (Hand mit Fingern) die Knochenachse +Y
+      const kids = b.children.filter((c) => c instanceof THREE.Bone);
+      this.restDir.set(b, kids.length === 1 ? kids[0].position.clone().normalize() : new THREE.Vector3(0, 1, 0));
     }
     // Laenge eines Knochens = Abstand zum Kind-Gelenk
     const d = (child: string) => this.bone(child)?.position.length() ?? 0;
@@ -62,8 +65,39 @@ export class ClimberFigure {
     return new ClimberFigure(gltf.scene);
   }
 
+  /** Namen des MPFB-"game_engine"-Skeletts (realistische Figur) fuer die internen Knochennamen */
+  private static readonly GAME_ENGINE: Record<string, string> = {
+    hips: 'pelvis', spine: 'spine_02', chest: 'spine_03', neck: 'neck_01', head: 'head',
+    'upper_arm.L': 'upperarm_l', 'forearm.L': 'lowerarm_l', 'hand.L': 'hand_l',
+    'upper_arm.R': 'upperarm_r', 'forearm.R': 'lowerarm_r', 'hand.R': 'hand_r',
+    'thigh.L': 'thigh_l', 'shin.L': 'calf_l', 'foot.L': 'foot_l',
+    'thigh.R': 'thigh_r', 'shin.R': 'calf_r', 'foot.R': 'foot_r',
+  };
+
   private bone(name: string): THREE.Bone | undefined {
-    return this.bones.get(name) ?? this.bones.get(name.replace('.', '_')) ?? this.bones.get(name.replace('.', ''));
+    const mapped = ClimberFigure.GAME_ENGINE[name];
+    return (
+      (mapped ? this.bones.get(mapped) : undefined) ??
+      this.bones.get(name) ??
+      this.bones.get(name.replace('.', '_')) ??
+      this.bones.get(name.replace('.', ''))
+    );
+  }
+
+  /** Finger zur Faust bzw. um den Griff kruemmen (0 = offen, 1 = Griff) */
+  private curlFingers(k: 'l' | 'r', amount: number): void {
+    for (const f of ['index', 'middle', 'ring', 'pinky']) {
+      for (let i = 1; i <= 3; i++) {
+        const b = this.bones.get(`${f}_0${i}_${k}`);
+        if (!b) continue;
+        const ang = amount * (i === 1 ? 0.9 : 1.1) * FINGER_SIGN;
+        b.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ang));
+      }
+    }
+    for (let i = 1; i <= 3; i++) {
+      const b = this.bones.get(`thumb_0${i}_${k}`);
+      if (b) b.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), amount * 0.45 * FINGER_SIGN));
+    }
   }
 
   /** Knochen so drehen, dass er (minimal) auf einen Weltpunkt zeigt. */
@@ -181,6 +215,9 @@ export class ClimberFigure {
       this.aim(this.bone(`upper_arm.${k}`), elbow);
       this.aim(this.bone(`forearm.${k}`), wrist);
       this.aim(this.bone(`hand.${k}`), target);
+      // Finger: am Griff gekruemmt, sonst halb offen
+      const h = c.hands[s];
+      this.curlFingers(s === 'left' ? 'l' : 'r', falling ? 0.15 : h.grip ? 1 : 0.35);
     }
 
     // ------------------------------------------------ Beine
