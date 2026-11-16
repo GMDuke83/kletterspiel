@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.blend1
+*.log
+scripts/blender/make_rock_report.json
+.vite/
