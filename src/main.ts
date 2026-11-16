@@ -3,6 +3,7 @@ import { createRenderer } from './render/renderer';
 import { createEnvironment } from './world/environment';
 import { loadWall } from './world/loadWall';
 import { loadTerrain, makeHeightSampler } from './world/terrain';
+import { applyRockPhoto } from './render/rockPhotoMaterial';
 import { Climber, type Side } from './climbing/climber';
 import { GripAim } from './climbing/aim';
 import { PlaceholderFigure } from './character/placeholder';
@@ -85,8 +86,9 @@ async function start(): Promise<void> {
   const o = route.origin;
   const detail = high && useTerrain && !params.has('nodetail')
     ? {
-        detail: await new THREE.TextureLoader().loadAsync(`${BASE}assets/detail_rock.jpg`),
-        tileSize: 6,
+        // Struktur aus der CC0-Fels-Fototextur (Poly Haven "Rock Face 03")
+        detail: await new THREE.TextureLoader().loadAsync(`${BASE}assets/rock_detail.jpg`),
+        tileSize: 4,
         bump: params.has('bump') ? Number(params.get('bump')) : undefined,
         albedo: params.has('albedo') ? Number(params.get('albedo')) : undefined,
         bounds: {
@@ -106,6 +108,22 @@ async function start(): Promise<void> {
   ]);
   scene.add(wall.root);
   if (terrain) scene.add(terrain);
+
+  if (useTerrain) {
+    // Fels-Fototextur (CC0) auf der Kletterwand: Struktur, Normalen und Rauheit
+    const tl = new THREE.TextureLoader();
+    const [detailT, normalT, roughT] = await Promise.all(
+      ['rock_detail.jpg', 'rock_normal.jpg', 'rock_rough.jpg'].map((f) => tl.loadAsync(`${BASE}assets/${f}`)),
+    );
+    const [w, h] = route.wall.size;
+    const tile = 2.5; // Meter pro Kachel
+    wall.root.traverse((m) => {
+      if (m instanceof THREE.Mesh && m.name === 'wall') {
+        applyRockPhoto(m.material as THREE.MeshStandardMaterial, { detail: detailT, normal: normalT, rough: roughT },
+          new THREE.Vector2(w / tile, h / tile), high ? 1 : 0.7);
+      }
+    });
+  }
   if (near) scene.add(near);
   const groundY = useTerrain ? route.wall.position[1] : 0;
 
