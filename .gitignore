@@ -9,3 +9,4 @@ assets-src/terrain/raw/
 __pycache__/
 assets-src/textures/polyhaven/
 assets-src/mpfb/
+.cache/
