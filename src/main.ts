@@ -7,6 +7,7 @@ import { applyRockPhoto } from './render/rockPhotoMaterial';
 import { Climber, type Side } from './climbing/climber';
 import { GripAim } from './climbing/aim';
 import { PlaceholderFigure } from './character/placeholder';
+import { ClimberFigure } from './character/climberFigure';
 import { CameraRig } from './core/cameraRig';
 import { Hud } from './ui/hud';
 import { Autopilot } from './climbing/autopilot';
@@ -140,8 +141,17 @@ async function start(): Promise<void> {
   };
 
   const climber = new Climber(wall.grips, probe, groundY);
-  const figure = new PlaceholderFigure();
-  scene.add(figure.group);
+  // eigene Kletterfigur (scripts/blender/make_climber.py); bei Ladefehler der alte Platzhalter
+  let figure: ClimberFigure | null = null;
+  let placeholder: PlaceholderFigure | null = null;
+  try {
+    figure = await ClimberFigure.load(`${BASE}assets/climber.glb`);
+    scene.add(figure.root);
+  } catch (err) {
+    console.warn('Kletterfigur nicht geladen, nutze Platzhalter', err);
+    placeholder = new PlaceholderFigure();
+    scene.add(placeholder.group);
+  }
   const aim = new GripAim(wall.grips, scene, renderer.domElement);
   const rig = new CameraRig(camera, renderer.domElement);
   if (useTerrain) {
@@ -188,6 +198,7 @@ async function start(): Promise<void> {
     document.title = `sim ${sim}s: ${climber.state} Höhe=${climber.height.toFixed(1)}m Stürze=${climber.falls}`;
     rig.distance = 5;
   }
+  if (params.has('dist')) rig.distance = Number(params.get('dist'));
   // ?view=valley -> Aussicht ins Tal (wie Taste V), ?view=side -> Kamera seitlich und weit weg
   if (params.get('view') === 'valley') rig.lookout = true;
   if (params.get('view') === 'side') {
@@ -208,7 +219,12 @@ async function start(): Promise<void> {
     const dt = Math.min(clock.getDelta(), 0.05);
     if (autopilot && climber.elapsed < stopAfter) autopilot.update(dt);
     climber.update(dt);
-    figure.update(climber, clock.elapsedTime);
+    if (figure) {
+      const moving = climber.hands.left.target ?? climber.hands.right.target;
+      const look = moving?.position ?? aim.hovered?.position ?? null;
+      figure.update(climber, clock.elapsedTime, dt, probe, groundY, look);
+    }
+    placeholder?.update(climber, clock.elapsedTime);
     rig.update(climber.body, climber.out, dt);
     env.update(camera, climber.body);
     aim.update(camera, window.innerWidth, window.innerHeight, reachable);
