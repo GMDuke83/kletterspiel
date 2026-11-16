@@ -119,6 +119,26 @@ def main():
     # ------------------------------------------------ Nahbereich-Netz
     H = bt.NEAR_HALF
     E0, E1, N0, N1 = wE - H, wE + H, wN - H, wN + H
+    # Hoehe des groben 4-m-Netzes (build_terrain.py) fuer einen nahtlosen Rand
+    dem2, img2, have2, bounds2, _ = bt.load_mosaic()
+    bt.fill_gaps(dem2, img2, have2)
+    coarse_field = bt.Field(dem2, bounds2)
+    cs = bt.STEPS[0]
+
+    def coarse_h(E, N):
+        gE0, gN0 = bounds2[0], bounds2[1]
+        i = np.floor((E - gE0) / cs)
+        j = np.floor((N - gN0) / cs)
+        e0, n0 = gE0 + i * cs, gN0 + j * cs
+        fe, fn = (E - e0) / cs, (N - n0) / cs
+        h00 = coarse_field.h(e0, n0)
+        h10 = coarse_field.h(e0 + cs, n0)
+        h01 = coarse_field.h(e0, n0 + cs)
+        h11 = coarse_field.h(e0 + cs, n0 + cs)
+        return (h00 * (1 - fe) + h10 * fe) * (1 - fn) + (h01 * (1 - fe) + h11 * fe) * fn
+
+    BLEND = 14.0   # Meter am Rand, ueber die das feine Netz in das grobe uebergeht
+
     def patch_mesh(step, cut=True):
         """Gitter mit Loch unter der Wand (cut) und Schuerze am Rand."""
         cnt = int(round(2 * H / step))
@@ -126,6 +146,10 @@ def main():
         ns = N1 - np.arange(cnt + 1) * step
         EE, NN = np.meshgrid(es, ns)
         HH = field.h(EE, NN)
+        edge = np.minimum(np.minimum(EE - E0, E1 - EE), np.minimum(NN - N0, N1 - NN))
+        w = np.clip(1 - edge / BLEND, 0, 1)
+        w = w * w * (3 - 2 * w)
+        HH = HH * (1 - w) + coarse_h(EE, NN) * w
         NRM = field.normal(EE, NN, step).reshape(-1, 3)
         P = np.stack([EE - oE, HH, -(NN - oN)], -1).reshape(-1, 3)
         UV = np.stack([(EE - E0) / (2 * H), (N1 - NN) / (2 * H)], -1).reshape(-1, 2)

@@ -41,7 +41,7 @@
   },
   "terrain": {
     "file": "assets/dufourspitze_terrain.glb",
-    "triangles": 296031,
+    "triangles": 296646,
     "lodSteps": [
       4.0,
       14.0,

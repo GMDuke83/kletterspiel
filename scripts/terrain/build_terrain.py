@@ -282,7 +282,7 @@ def main():
     _, wE, wN, wH, slope, az, n = site
     print(f"Wand: E {wE:.0f} N {wN:.0f} H {wH:.0f} m, Neigung {slope:.0f} Grad, Blick nach {az:.0f} Grad")
 
-    m = NEAR_HALF - 3.0     # etwas Ueberlappung mit dem Nahbereich (dessen Schuerzen decken den Rand)
+    m = NEAR_HALF - 6.0     # Ueberlappung: dort laeuft der Nahbereich exakt auf die Hoehen dieses Netzes aus
     hole = (wE - m, wN - m, wE + m, wN + m)
     P, Nm, T, I, stats = build_mesh(field, bounds, (wE, wN), summit, hole)
     tris = len(I) // 3

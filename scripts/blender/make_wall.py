@@ -417,7 +417,11 @@ def layout_grips():
             grips.append(c)
         z += rnd.uniform(0.38, 0.5)
         row += 1
-    grips.append({"x": route_center(TOP), "z": TOP, "type": "jug", "summit": 1})
+    # sicherer Ausstieg: zwei Henkel knapp unter dem Gipfelgriff
+    cx = route_center(TOP)
+    for side in (-1, 1):
+        grips.append({"x": cx + side * 0.25, "z": TOP - 0.42, "type": "jug"})
+    grips.append({"x": cx, "z": TOP, "type": "jug", "summit": 1})
     return grips
 
 
