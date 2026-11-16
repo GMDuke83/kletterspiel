@@ -12,6 +12,9 @@ import { CameraRig } from './core/cameraRig';
 import { Hud } from './ui/hud';
 import { Autopilot } from './climbing/autopilot';
 import route from './routes/dufourspitze.json';
+import { Walker } from './walking/walker';
+import { WalkController } from './walking/walkController';
+import { addSummitEntry, buildRouteMarkers, formatTime } from './game/stage';
 
 const BASE = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
@@ -187,7 +190,57 @@ async function start(): Promise<void> {
   loadingEl.remove();
 
   const reachable = (g: (typeof wall.grips)[number]) => climber.canReach('left', g) || climber.canReach('right', g);
+  // ------------------------------------------------ Etappe: Gehen <-> Klettern
+  type Mode = 'walk' | 'climb';
+  const testMode = params.has('sim') || params.has('autoclimb');
+  const stage = useTerrain && !!rig.ground && !testMode;
+  let mode: Mode = stage ? 'walk' : 'climb';
+  const groundFn = rig.ground ?? (() => -Infinity);
+  const walker = new Walker(groundFn);
+  const walkCtl = new WalkController(walker, camera, renderer.domElement, groundFn);
+  const wallOut = new THREE.Vector3(Math.sin(route.wall.yaw), 0, Math.cos(route.wall.yaw));
+  const entry = new THREE.Vector3(...(route.wall.position as THREE.Vector3Tuple)).addScaledVector(wallOut, 0.9);
+  const ridge = route.ridgePath.points;
+  const exitPt = new THREE.Vector3(ridge[0][0], ridge[0][1], ridge[0][2]);
+  const summitPt = new THREE.Vector3(...(ridge[ridge.length - 1] as THREE.Vector3Tuple));
+  let stageTime = 0;
+  let walkFalls = 0;
+  let stageDone = false;
+  const helpEl = document.getElementById('help')!;
+  const HELP_WALK = 'Klick = Maus einfangen (Esc frei) · <b>WASD</b> gehen · Maus schauen · Shift schneller · Leertaste Sprung · <b>C</b> Ich-/Schulterperspektive · <b>F</b> ein-/aussteigen';
+  const HELP_CLIMB = helpEl.innerHTML;
+  if (stage) {
+    hud.stageMode = true;
+    scene.add(buildRouteMarkers(ridge, groundFn));
+    walker.place(entry, route.wall.yaw);
+    walkCtl.setActive(true);
+    helpEl.innerHTML = HELP_WALK;
+  }
+  const setMode = (m: Mode) => {
+    mode = m;
+    walkCtl.setActive(m === 'walk');
+    helpEl.innerHTML = m === 'walk' ? HELP_WALK : HELP_CLIMB;
+    if (figure) figure.root.visible = true;
+  };
+  const enterWall = () => {
+    climber.reset(true);
+    setMode('climb');
+  };
+  const leaveWall = (atTop: boolean) => {
+    const p = atTop ? exitPt : entry;
+    const look = atTop ? summitPt.clone().sub(exitPt) : wallOut.clone().negate();
+    walker.place(p, Math.atan2(-look.x, -look.z));
+    setMode('walk');
+  };
+  window.addEventListener('keydown', (e) => {
+    if (!stage || e.key.toLowerCase() !== 'f') return;
+    if (mode === 'walk' && walker.pos.distanceTo(entry) < 2.5) enterWall();
+    else if (mode === 'climb' && climber.state === 'summit') leaveWall(true);
+    else if (mode === 'climb' && !climber.started) leaveWall(false);
+  });
+
   const grab = (side: Side) => {
+    if (mode !== 'climb') return;
     if (aim.hovered) climber.grab(side, aim.hovered);
   };
 
@@ -200,7 +253,8 @@ async function start(): Promise<void> {
     const k = e.key.toLowerCase();
     if (k === 'q') grab('left');
     if (k === 'e') grab('right');
-    if (k === 'r') climber.reset(true);
+    if (k === 'r' && mode === 'climb' && !stage) climber.reset(true);
+    if (k === 'r' && stage && stageDone) location.reload();
   });
 
   const autopilot = params.has('autoclimb') ? new Autopilot(climber, wall.grips) : null;
@@ -236,11 +290,53 @@ async function start(): Promise<void> {
   let reduced = false;
   let fpsTime = 0;
   const clock = new THREE.Clock();
-  (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig, figure };
+  (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig, figure, walker, walkCtl, getMode: () => mode, ridge, entry, exitPt, summitPt };
   document.body.dataset.loaded = 'true';
 
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
+    if (stage && !stageDone) stageTime += dt;
+    // Hoehenfaktor: ueber 4000 m langsamer und schlechtere Erholung
+    const altFactor = THREE.MathUtils.clamp(1 - (walker.pos.y - 3500) / 6000, 0.6, 1);
+    if (mode === 'walk') {
+      const drop = walker.update(dt, walkCtl.input(), altFactor);
+      if (drop > 4) {
+        walkFalls++;
+        walker.place(walker.safe, walker.yaw);
+        walker.message = drop > 50 ? 'Absturz! Zurueck zum letzten sicheren Punkt.' : `Sturz aus ${drop.toFixed(0)} m - zurueck zum sicheren Punkt.`;
+        walker.messageTime = 3;
+      } else if (drop > 1.5) {
+        walker.message = 'Harte Landung.';
+        walker.messageTime = 1.5;
+      }
+      walkCtl.update(dt);
+      if (figure) {
+        figure.root.visible = !walkCtl.firstPerson;
+        figure.updateWalk(walker.pos, walker.yaw, walker.speed, walker.travelled, groundFn, walker.airborne);
+      }
+      env.update(camera, walker.pos);
+      const nearEntry = walker.pos.distanceTo(entry) < 2.5;
+      const toSummit = Math.hypot(walker.pos.x - summitPt.x, walker.pos.z - summitPt.z);
+      if (!stageDone && toSummit < 3) {
+        stageDone = true;
+        const falls = walkFalls + climber.falls;
+        const book = addSummitEntry({ date: new Date().toLocaleString('de-CH'), seconds: stageTime, falls });
+        const rows = book.slice(0, 5).map((b) => `<tr><td>${b.date}</td><td>${formatTime(b.seconds)}</td><td>${b.falls} Stürze</td></tr>`).join('');
+        hud.showOverlay('Dufourspitze 4634 m – Gipfel!', `Zeit: <b>${formatTime(stageTime)}</b> · Stürze: <b>${falls}</b><br>Gipfelbuch:<table>${rows}</table>Weiter umschauen mit WASD · <b>R</b> = Etappe neu starten`);
+        walkCtl.setActive(true);
+      }
+      if (stageDone && toSummit > 8) hud.showOverlay(null);
+      hud.setMode(walker.terrain === 'normal' ? 'Gehen' : walker.terrain === 'steil' ? 'Gehen (steil)' : walker.terrain === 'kraxeln' ? 'Kraxeln' : 'zu steil');
+      hud.setHint(
+        nearEntry ? 'F = in die Wand einsteigen'
+          : !walkCtl.pointerLocked ? 'Klick ins Bild, um mit der Maus zu schauen'
+            : stageDone ? '' : `Gipfel: noch ${Math.round(toSummit)} m – folge den Steinmännern`,
+      );
+      hud.updateWalk(walker.stamina, walker.terrain, walker.pos.y, stageTime, walkFalls + climber.falls, walker.messageTime > 0 ? walker.message : '');
+      renderer.render(scene, camera);
+      measureFps();
+      return;
+    }
     if (autopilot && climber.elapsed < stopAfter) autopilot.update(dt);
     climber.update(dt);
     if (figure) {
@@ -253,7 +349,15 @@ async function start(): Promise<void> {
     env.update(camera, climber.body);
     aim.update(camera, window.innerWidth, window.innerHeight, reachable);
     hud.update(climber, aim.hovered, aim.hovered ? reachable(aim.hovered) : false, useTerrain ? climber.body.y : NaN);
+    if (stage) {
+      hud.setMode('Klettern');
+      hud.setHint(climber.state === 'summit' ? 'Wand geschafft! F = oben aussteigen' : !climber.started ? 'F = zurück zum Gehen' : '');
+    }
     renderer.render(scene, camera);
+    measureFps();
+  });
+
+  function measureFps(): void {
     frames++;
     const now = performance.now() / 1000; // nicht clock.getElapsedTime(): das verstellt getDelta()
     fpsTime += lastT ? now - lastT : 0;
@@ -275,7 +379,7 @@ async function start(): Promise<void> {
       frames = 0;
       fpsTime = 0;
     }
-  });
+  }
 }
 
 start().catch((err: unknown) => {

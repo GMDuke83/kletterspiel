@@ -11,7 +11,8 @@
     "wall": "scripts\\blender\\make_wall.cmd",
     "test:feet": "node scripts/test/footStability.mjs",
     "test:sim": "esbuild scripts/test/simClimb.ts --bundle --platform=node --log-level=warning --outfile=node_modules/.cache/simClimb.cjs && node node_modules/.cache/simClimb.cjs public/assets/test_wall.glb 600 && node node_modules/.cache/simClimb.cjs public/assets/dufour_wall.glb 600",
-    "terrain": "python -I scripts/terrain/build_terrain.py && cd scripts/terrain && python -I -c \"import build_near; build_near.main()\""
+    "terrain": "python -I scripts/terrain/build_terrain.py && cd scripts/terrain && python -I -c \"import build_near; build_near.main()\"",
+    "test:walk": "node -e \"process.env.GPU='1';process.env.PROFILE='.cache/edgegpu';process.env.WAIT='12000';process.env.EVAL=require('fs').readFileSync('scripts/test/walkRidge.js','utf8');process.env.EVALWAIT='4000';require('child_process').execFileSync('node',['scripts/test/gpuShot.mjs','http://localhost:5173/','.cache/walk_test.png'],{stdio:'inherit',env:process.env})\""
   },
   "dependencies": {
     "three": "^0.170.0"

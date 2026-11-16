@@ -336,4 +336,55 @@ export class ClimberFigure {
       this.aim(head, hp.clone().add(dirUp), THREE.MathUtils.degToRad(35));
     }
   }
+
+  /**
+   * Gehen auf dem Gelaende: aufrecht, Schritte im Wechsel (Fuesse per IK auf dem Boden),
+   * Arme schwingen. pos = Fusspunkt, yaw = Blickrichtung (0 = -Z), speed in m/s.
+   */
+  updateWalk(pos: THREE.Vector3, yaw: number, speed: number, travelled: number, ground: (x: number, z: number) => number, airborne: boolean): void {
+    for (const [b, q] of this.rest) b.quaternion.copy(q);
+    const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    // Modell schaut lokal nach +Z
+    this.root.quaternion.setFromAxisAngle(UP, Math.atan2(fwd.x, fwd.z));
+    const phase = travelled / 0.7 * Math.PI; // ein Doppelschritt ~1,4 m
+    const amt = Math.min(1, speed / 1.4);
+    this.root.position.copy(pos);
+    this.root.position.y += Math.abs(Math.sin(phase)) * 0.025 * amt;
+    // auf steilem Boden etwas einsinken, damit der bergseitige Fuss nicht schwebt
+    const gF = ground(pos.x + fwd.x * 0.3, pos.z + fwd.z * 0.3);
+    const gB = ground(pos.x - fwd.x * 0.3, pos.z - fwd.z * 0.3);
+    if (Number.isFinite(gF) && Number.isFinite(gB)) this.root.position.y -= Math.abs(gF - gB) * 0.25;
+    this.root.updateMatrixWorld(true);
+
+    // Arme haengen und schwingen gegengleich
+    for (const s of ['left', 'right'] as const) {
+      const k = s === 'left' ? 'L' : 'R';
+      const side = right.clone().multiplyScalar(s === 'left' ? -1 : 1);
+      const sw = Math.sin(phase + (s === 'left' ? Math.PI : 0)) * 0.22 * amt;
+      const sh = this.worldPos(`upper_arm.${k}`);
+      const elbow = sh.clone().addScaledVector(UP, -this.len.upper * 0.97).addScaledVector(side, 0.06).addScaledVector(fwd, sw * 0.6);
+      const wrist = elbow.clone().addScaledVector(UP, -this.len.fore * 0.9).addScaledVector(fwd, sw + 0.08).addScaledVector(side, 0.02);
+      this.aim(this.bone(`upper_arm.${k}`), elbow);
+      this.aim(this.bone(`forearm.${k}`), wrist);
+      this.aim(this.bone(`hand.${k}`), wrist.clone().addScaledVector(UP, -0.1).addScaledVector(fwd, 0.02));
+      this.curlFingers(s === 'left' ? 'l' : 'r', 0.35);
+    }
+    // Beine: Fuesse im Wechsel vor/zurueck, Schwungbein angehoben
+    for (const s of ['left', 'right'] as const) {
+      const k = s === 'left' ? 'L' : 'R';
+      const side = right.clone().multiplyScalar(s === 'left' ? -1 : 1);
+      const ph = phase + (s === 'left' ? 0 : Math.PI);
+      const hip = this.worldPos(`thigh.${k}`);
+      const foot = pos.clone().addScaledVector(side, 0.11).addScaledVector(fwd, Math.sin(ph) * 0.32 * amt);
+      const gy = ground(foot.x, foot.z);
+      foot.y = (Number.isFinite(gy) ? gy : pos.y) + 0.08 + Math.max(0, Math.cos(ph)) * 0.13 * amt;
+      if (airborne) foot.copy(hip).addScaledVector(UP, -(this.len.thigh + this.len.shin) * 0.85).addScaledVector(fwd, 0.1);
+      const pole = fwd.clone().addScaledVector(side, 0.15);
+      const knee = this.solve(hip, foot, this.len.thigh, this.len.shin, pole);
+      this.aim(this.bone(`thigh.${k}`), knee);
+      this.aim(this.bone(`shin.${k}`), foot);
+      this.aim(this.bone(`foot.${k}`), foot.clone().addScaledVector(fwd, 0.2).addScaledVector(UP, -0.06));
+    }
+  }
 }

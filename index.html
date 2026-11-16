@@ -10,7 +10,7 @@
     <div id="hud">
       <div class="row"><span class="tag left">L</span><div class="bar"><div id="barL"></div></div><span id="gripL" class="grip"></span></div>
       <div class="row"><span class="tag right">R</span><div class="bar"><div id="barR"></div></div><span id="gripR" class="grip"></span></div>
-      <div class="stats">Wand <b id="height">0 m</b> · <b id="alt">–</b></div>
+      <div class="stats"><b id="mode">Klettern</b> · Wand <b id="height">0 m</b> · <b id="alt">–</b></div>
       <div class="stats">Zeit <b id="time">0 s</b> · Stürze <b id="falls">0</b></div>
       <div id="loading">lade Wand …</div>
       <label class="opt"><input type="checkbox" id="showGrips" checked /> Griffe anzeigen</label>
@@ -25,10 +25,10 @@
     <div id="hover"></div>
     <div id="msg"></div>
     <div id="credits"><span id="fps"></span> · Geodaten © swisstopo · Felstextur: Poly Haven (CC0)</div>
+    <div id="hint" hidden></div>
     <div id="overlay" hidden>
-      <h1>Gipfel erreicht!</h1>
+      <h1 id="overlayTitle">Gipfel erreicht!</h1>
       <p id="overlayText"></p>
-      <p>Drücke <b>R</b> für einen neuen Versuch.</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

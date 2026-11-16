@@ -19,6 +19,45 @@ export class Hud {
   private hover = el('hover');
   private overlay = el('overlay');
   private overlayText = el('overlayText');
+  private overlayTitle = el('overlayTitle');
+  private hint = el('hint');
+  private mode = el('mode');
+  /** Etappen-Modus: das Wand-Ende ist nicht das Spielende */
+  stageMode = false;
+
+  /** Hinweis unten in der Bildmitte (z. B. "F = einsteigen") */
+  setHint(text: string): void {
+    this.hint.textContent = text;
+    this.hint.hidden = !text;
+  }
+
+  setMode(text: string): void {
+    this.mode.textContent = text;
+  }
+
+  /** Abschluss-Bildschirm (Etappe geschafft); null = ausblenden */
+  showOverlay(title: string | null, text = ''): void {
+    this.overlay.hidden = title === null;
+    if (title !== null) {
+      this.overlayTitle.textContent = title;
+      this.overlayText.innerHTML = text;
+    }
+  }
+
+  /** Anzeige im Gehmodus: Puste statt Hand-Ausdauer */
+  updateWalk(stamina: number, terrain: string, altitude: number, time: number, falls: number, message: string): void {
+    for (const side of ['left', 'right'] as Side[]) {
+      this.bars[side].style.width = `${Math.round(stamina * 100)}%`;
+      this.bars[side].classList.toggle('low', stamina < 0.25);
+      this.gripLabels[side].textContent = side === 'left' ? 'Puste' : terrain;
+    }
+    this.height.textContent = '–';
+    this.alt.textContent = `${Math.round(altitude).toLocaleString('de-CH')} m ü. M.`;
+    this.time.textContent = `${time.toFixed(0)} s`;
+    this.falls.textContent = String(falls);
+    this.msg.textContent = message;
+    this.hover.textContent = '';
+  }
 
   update(c: Climber, hovered: Grip | null, reachable: boolean, altitude: number): void {
     for (const side of ['left', 'right'] as Side[]) {
@@ -40,10 +79,9 @@ export class Hud {
     this.hover.textContent = hovered
       ? `${hovered.summit ? 'Gipfel' : GRIP_INFO[hovered.type].label}${reachable ? '' : ' (zu weit)'}`
       : '';
-    const won = c.state === 'summit';
-    this.overlay.hidden = !won;
-    if (won) {
-      this.overlayText.textContent = `Zeit: ${c.elapsed.toFixed(1)} s · Stürze: ${c.falls}`;
+    if (!this.stageMode) {
+      const won = c.state === 'summit';
+      this.showOverlay(won ? 'Gipfel erreicht!' : null, `Zeit: ${c.elapsed.toFixed(1)} s · Stürze: ${c.falls}<br>Drücke <b>R</b> für einen neuen Versuch.`);
     }
   }
 }
