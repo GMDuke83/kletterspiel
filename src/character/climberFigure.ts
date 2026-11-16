@@ -22,6 +22,8 @@ interface FootState {
  */
 export class ClimberFigure {
   readonly root: THREE.Object3D;
+  /** Tritte der Wand (foot_*-Punkte); leer = Reibungstritte per Raycast */
+  footholds: THREE.Vector3[] = [];
   private bones = new Map<string, THREE.Bone>();
   private rest = new Map<THREE.Bone, THREE.Quaternion>();
   private restDir = new Map<THREE.Bone, THREE.Vector3>();
@@ -154,6 +156,10 @@ export class ClimberFigure {
     this.root.updateMatrixWorld(true);
 
     // ------------------------------------------------ Arme
+    // beide Haende am selben Griff: leicht nebeneinander greifen, Ellbogen nach aussen
+    const L = c.hands.left;
+    const R = c.hands.right;
+    const matched = !falling && L.pos.distanceTo(R.pos) < 0.1;
     for (const s of ['left', 'right'] as Side[]) {
       const k = s === 'left' ? 'L' : 'R';
       const sideV = right.clone().multiplyScalar(s === 'left' ? -1 : 1);
@@ -163,10 +169,14 @@ export class ClimberFigure {
         target = shoulder.clone().addScaledVector(UP, 0.45).addScaledVector(sideV, 0.25).addScaledVector(out, 0.15);
       } else {
         target = c.hands[s].pos.clone().addScaledVector(out, 0.02);
+        if (matched) target.addScaledVector(sideV, 0.045);
       }
       const dir = target.clone().sub(shoulder).normalize();
       const wrist = target.clone().addScaledVector(dir, -this.len.hand);
-      const pole = new THREE.Vector3().addScaledVector(UP, -0.9).addScaledVector(sideV, 0.55).addScaledVector(out, -0.1);
+      const pole = new THREE.Vector3()
+        .addScaledVector(UP, -0.9)
+        .addScaledVector(sideV, matched ? 1.0 : 0.55)
+        .addScaledVector(out, -0.1);
       const elbow = this.solve(shoulder, wrist, this.len.upper, this.len.fore, pole);
       this.aim(this.bone(`upper_arm.${k}`), elbow);
       this.aim(this.bone(`forearm.${k}`), wrist);
@@ -187,8 +197,25 @@ export class ClimberFigure {
       } else {
         // Wunschposition: unter der Huefte, leicht nach aussen, auf dem Fels
         const ideal = hip.clone().addScaledVector(UP, -legLen * 0.8).addScaledVector(sideV, 0.1);
-        const d = probe(ideal, out);
-        if (d !== null) ideal.addScaledVector(out, 0.07 - d);
+        // naechster passender Tritt unter der Huefte, sonst Reibungstritt auf dem Fels
+        const otherFoot = this.feet[s === 'left' ? 'right' : 'left'].planted;
+        let best: THREE.Vector3 | null = null;
+        let bestD = 0.45;
+        for (const fh of this.footholds) {
+          if (fh.y > hip.y - 0.35 || fh.distanceTo(hip) > legLen * 0.97) continue;
+          if (otherFoot && fh.distanceTo(otherFoot) < 0.12) continue;
+          const dd = fh.distanceTo(ideal);
+          if (dd < bestD) {
+            bestD = dd;
+            best = fh;
+          }
+        }
+        if (best) {
+          ideal.copy(best).addScaledVector(out, 0.03);
+        } else {
+          const d = probe(ideal, out);
+          if (d !== null) ideal.addScaledVector(out, 0.07 - d);
+        }
         ideal.y = Math.max(ideal.y, groundY + 0.06);
         if (!f.planted) {
           f.planted = ideal.clone();

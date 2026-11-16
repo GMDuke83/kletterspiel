@@ -33,7 +33,7 @@ export class Hud {
           : 'frei';
     }
     this.height.textContent = `${c.height.toFixed(1)} m`;
-    this.alt.textContent = `${Math.round(altitude).toLocaleString('de-CH')} m ü. M.`;
+    this.alt.textContent = Number.isFinite(altitude) ? `${Math.round(altitude).toLocaleString('de-CH')} m ü. M.` : 'Testwand';
     this.time.textContent = `${c.elapsed.toFixed(1)} s`;
     this.falls.textContent = String(c.falls);
     this.msg.textContent = c.activeMessage;

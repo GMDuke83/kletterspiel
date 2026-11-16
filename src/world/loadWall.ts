@@ -8,6 +8,8 @@ export interface WallAsset {
   surfaces: THREE.Mesh[];
   colliders: THREE.Mesh[];
   grips: Grip[];
+  /** Tritte fuer die Fuesse (Empties "foot_*"), Weltkoordinaten */
+  feet: THREE.Vector3[];
   triangles: number;
 }
 
@@ -45,6 +47,7 @@ export async function loadWall(
   const surfaces: THREE.Mesh[] = [];
   const colliders: THREE.Mesh[] = [];
   const grips: Grip[] = [];
+  const feet: THREE.Vector3[] = [];
   let triangles = 0;
 
   root.traverse((o) => {
@@ -61,6 +64,8 @@ export async function loadWall(
         const mat = o.material as THREE.MeshStandardMaterial;
         if (mat.normalMap) mat.normalScale.set(1.6, 1.6); // Felsstruktur etwas kraeftiger
       }
+    } else if (o.name.startsWith('foot_')) {
+      feet.push(o.getWorldPosition(new THREE.Vector3()));
     } else if (o.name.startsWith('grip_')) {
       const ud = o.userData as { grip_type?: string; start?: number; summit?: number };
       const position = new THREE.Vector3();
@@ -81,5 +86,5 @@ export async function loadWall(
     }
   });
 
-  return { root, surfaces, colliders, grips, triangles };
+  return { root, surfaces, colliders, grips, feet, triangles };
 }

@@ -10,6 +10,8 @@ export class GripAim {
   private ring: THREE.Mesh;
   private ringMat: THREE.MeshBasicMaterial;
   private v = new THREE.Vector3();
+  private markers = new THREE.Group();
+  private hoverDot: THREE.Mesh;
 
   constructor(
     private readonly grips: Grip[],
@@ -25,14 +27,27 @@ export class GripAim {
     this.ring.visible = false;
     scene.add(this.ring);
 
-    // kleine farbige Marker je Grifftyp
-    const geo = new THREE.SphereGeometry(0.025, 10, 8);
+    // dezente farbige Punkte je Grifftyp (abschaltbar ueber "Griffe anzeigen")
+    const geo = new THREE.SphereGeometry(0.016, 10, 8);
     for (const g of grips) {
       const color = g.summit ? 0xff3b30 : GRIP_INFO[g.type].color;
-      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
-      m.position.copy(g.position).addScaledVector(g.normal, 0.02);
-      scene.add(m);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+      m.position.copy(g.position).addScaledVector(g.normal, 0.015);
+      this.markers.add(m);
     }
+    scene.add(this.markers);
+    this.hoverDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.022, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
+    );
+    this.hoverDot.renderOrder = 11;
+    this.hoverDot.visible = false;
+    scene.add(this.hoverDot);
+  }
+
+  /** Farbpunkte an allen Griffen ein-/ausblenden (beim Anvisieren wird der Typ immer gezeigt) */
+  set showMarkers(v: boolean) {
+    this.markers.visible = v;
   }
 
   update(camera: THREE.Camera, width: number, height: number, reachable: (g: Grip) => boolean): void {
@@ -55,6 +70,11 @@ export class GripAim {
       this.ring.position.copy(best.position).addScaledVector(best.normal, 0.03);
       this.ring.lookAt(this.v.copy(best.position).add(best.normal));
       this.ringMat.color.setHex(reachable(best) ? 0x4cd964 : 0xff453a);
+      this.hoverDot.position.copy(best.position).addScaledVector(best.normal, 0.03);
+      (this.hoverDot.material as THREE.MeshBasicMaterial).color.setHex(
+        best.summit ? 0xff3b30 : GRIP_INFO[best.type].color,
+      );
     }
+    this.hoverDot.visible = !!best;
   }
 }

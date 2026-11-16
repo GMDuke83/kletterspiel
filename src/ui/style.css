@@ -141,3 +141,9 @@ b.right { color: #6fd6ff; }
   font-size: 12px;
   cursor: pointer;
 }
+.opt {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}

@@ -34,13 +34,13 @@ const high = quality === 'high';
 const renderer = createRenderer(document.body);
 if (!high) renderer.setPixelRatio(1);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 40000);
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.25, 40000);
 const env = createEnvironment(
   scene,
   renderer,
   useTerrain
     ? // Sommerabend: Sonne aus West-Nordwest streift die Nordwand
-      { ground: false, haze: true, sunAzimuthDeg: -112, sunElevationDeg: 22, shadowMapSize: high ? 4096 : 1024 }
+      { ground: false, haze: true, sunAzimuthDeg: -112, sunElevationDeg: 22, shadowMapSize: high ? 2048 : 1024 }
     : { ground: true },
 );
 
@@ -146,6 +146,7 @@ async function start(): Promise<void> {
   let placeholder: PlaceholderFigure | null = null;
   try {
     figure = await ClimberFigure.load(`${BASE}assets/climber.glb`);
+    figure.footholds = wall.feet;
     scene.add(figure.root);
   } catch (err) {
     console.warn('Kletterfigur nicht geladen, nutze Platzhalter', err);
@@ -153,6 +154,22 @@ async function start(): Promise<void> {
     scene.add(placeholder.group);
   }
   const aim = new GripAim(wall.grips, scene, renderer.domElement);
+  // Hilfe "Griffe anzeigen" (Standard an), gespeichert im Browser
+  const showGrips = document.getElementById('showGrips') as HTMLInputElement;
+  try {
+    showGrips.checked = localStorage.getItem('showGrips') !== '0';
+  } catch {
+    showGrips.checked = true;
+  }
+  aim.showMarkers = showGrips.checked;
+  showGrips.addEventListener('change', () => {
+    aim.showMarkers = showGrips.checked;
+    try {
+      localStorage.setItem('showGrips', showGrips.checked ? '1' : '0');
+    } catch {
+      /* egal */
+    }
+  });
   const rig = new CameraRig(camera, renderer.domElement);
   if (useTerrain) {
     // schraeg von der Seite: Wand und Landschaft gleichzeitig im Bild
@@ -210,6 +227,9 @@ async function start(): Promise<void> {
   // Bildrate messen (fuer Tests in document.body.dataset.fps)
   const fpsEl = document.getElementById('fps')!;
   let frames = 0;
+  let lastT = 0;
+  let slow = 0;
+  let reduced = false;
   let fpsTime = 0;
   const clock = new THREE.Clock();
   (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig };
@@ -228,12 +248,25 @@ async function start(): Promise<void> {
     rig.update(climber.body, climber.out, dt);
     env.update(camera, climber.body);
     aim.update(camera, window.innerWidth, window.innerHeight, reachable);
-    hud.update(climber, aim.hovered, aim.hovered ? reachable(aim.hovered) : false, climber.body.y);
+    hud.update(climber, aim.hovered, aim.hovered ? reachable(aim.hovered) : false, useTerrain ? climber.body.y : NaN);
     renderer.render(scene, camera);
     frames++;
-    fpsTime += dt;
+    const now = performance.now() / 1000; // nicht clock.getElapsedTime(): das verstellt getDelta()
+    fpsTime += lastT ? now - lastT : 0;
+    lastT = now;
     if (fpsTime >= 1) {
-      document.body.dataset.fps = String(Math.round(frames / fpsTime));
+      const fps = frames / fpsTime;
+      // automatische Anpassung: 3 Sekunden in Folge unter 45 FPS -> Pixeldichte und Schatten reduzieren
+      slow = fps < 45 ? slow + 1 : 0;
+      if (slow >= 3 && !reduced) {
+        reduced = true;
+        renderer.setPixelRatio(1);
+        env.sun.shadow.mapSize.set(1024, 1024);
+        env.sun.shadow.map?.dispose();
+        env.sun.shadow.map = null;
+        climber.say('Grafik automatisch reduziert (Bildrate)');
+      }
+      document.body.dataset.fps = String(Math.round(fps));
       fpsEl.textContent = `${document.body.dataset.fps} FPS`;
       frames = 0;
       fpsTime = 0;

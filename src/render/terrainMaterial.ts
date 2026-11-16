@@ -97,10 +97,18 @@ export function applyTerrainDetail(mat: THREE.MeshStandardMaterial, o: TerrainDe
            float steep = 1.0 - smoothstep(0.45, 0.8, n.y); // steil = Fels
            float rock = max(1.0 - gSnow, steep * 0.6);
            gDetail = triDetail(vDetailPos, n);
-           // fuer den Bump eine ruhigere, groebere Variante (sonst Flimmern/Koernung)
-           gBumpH = triDetail(vDetailPos * 0.35, n);
+           // fuer den Bump eine ruhigere, groebere Variante (nur wenn Bump aktiv ist)
+           if (uBump > 0.0) gBumpH = triDetail(vDetailPos * 0.35, n);
            float k = gNear * mix(0.12, 0.7, rock) * uAlbedo;
-           diffuseColor.rgb *= mix(1.0, gDetail * 2.0, k);
+           // Steile Flaechen in der Naehe: das von oben aufgenommene Luftbild ist dort verzerrt.
+           // Stattdessen Fels-Fotostruktur mit der gemittelten Farbe der Umgebung (unscharfe Mip-Stufe).
+           float steepNear = (1.0 - smoothstep(0.38, 0.62, n.y)) * (1.0 - smoothstep(80.0, 450.0, dist)) * uAlbedo;
+           vec3 avg = texture2D(map, vMapUv, 6.0).rgb;
+           avg = mix(avg, vec3(dot(avg, vec3(0.333))), 0.55);         // entsaettigt (kein Blaustich)
+           avg = clamp(avg, vec3(0.08), vec3(0.45));                   // Fels, kein Schnee/Schatten-Schwarz
+           vec3 rockCol = avg * gDetail * 2.0;
+           diffuseColor.rgb *= mix(1.0, gDetail * 2.0, k * (1.0 - steepNear));
+           diffuseColor.rgb = mix(diffuseColor.rgb, rockCol, steepNear);
          }`,
       )
       .replace(

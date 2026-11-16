@@ -40,6 +40,12 @@ export function createEnvironment(
   u['mieCoefficient'].value = 0.004;
   u['mieDirectionalG'].value = 0.8;
   u['sunPosition'].value.copy(sunDir);
+  // Himmel immer zuerst und ohne Tiefentest zeichnen (der Sky-Shader setzt z = w; mit dem
+  // umgekehrten Tiefenpuffer laege der Himmel sonst vor allem anderen)
+  sky.material.depthTest = false;
+  sky.material.depthWrite = false;
+  sky.renderOrder = -1000;
+  sky.frustumCulled = false;
   scene.add(sky);
 
   // Himmel als Umgebungs-Reflexion (IBL) fuer PBR-Materialien

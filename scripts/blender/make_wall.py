@@ -54,7 +54,7 @@ if DUFOUR:
     REPORT_PATH = os.path.join(ROOT, "scripts", "blender", "make_wall_report.json")
 TOP = HEIGHT - 1.0        # oberster Griff (Gipfelgriff) knapp unter der Oberkante
 HIGH_STEP = 0.03          # Rasterabstand des hochaufgeloesten Meshes (m)
-TARGET_TRIS = 12000       # sichtbares Wand-Mesh
+TARGET_TRIS = 22000       # sichtbares Wand-Mesh (Griffe sind jetzt Teil der Geometrie)
 COL_STEP = 0.5            # Rasterabstand des Kollisions-Meshes
 TEX_W, TEX_H = 2048, 4096 # Bake-Aufloesung (Seitenverhaeltnis wie die Wand)
 
@@ -131,20 +131,68 @@ def edge_fade(x, z):
             * smoothstep(0.0, 0.5, z) * smoothstep(HEIGHT, HEIGHT - 0.9, z))
 
 
-def surface_point(x, z, fine=True):
+# Griffe und Tritte als Felsformen (werden in surface_point eingerechnet)
+HOLDS = []          # dicts: x, z, type, w (Breite)
+HOLD_BINS = {}      # Hoehen-Raster 0.5 m -> Liste der Griffe
+
+
+def hold_shape(h, x, z):
+    """Erhebung (m, zur Kletterseite) einer einzelnen Griff-/Trittform an (x, z)."""
+    dx, dz = x - h["x"], z - h["z"]
+    t, w = h["type"], h["w"]
+    if t == "sloper":       # runder Buckel
+        return 0.06 * math.exp(-((dx / (w * 0.5)) ** 2 + (dz / 0.09) ** 2) * 1.3)
+    if abs(dx) > w / 2 + 0.03 or dz < -0.2 or dz > 0.14:
+        return 0.0
+    A, below, drop = {"jug": (0.10, 0.14, 0.035), "crimp": (0.04, 0.06, 0.018),
+                      "foot": (0.04, 0.08, 0.012)}[t]
+    lat = smoothstep(w / 2 + 0.03, w / 2 - 0.02, abs(dx))   # seitlich weich auslaufen
+    if dz <= 0:
+        prof = A * smoothstep(-below, 0.0, dz)                # Rampe von unten bis zur Kante
+    else:
+        prof = A * (1 - smoothstep(0.0, 0.03, dz))            # Kante bricht oben scharf ab
+        if dz < 0.12:
+            prof -= drop * math.sin(math.pi * dz / 0.12)      # kleine Mulde dahinter
+    return prof * lat
+
+
+def hold_offset(x, z):
+    best = 0.0
+    for h in HOLD_BINS.get(int(z / 0.5), ()):
+        v = hold_shape(h, x, z)
+        if abs(v) > abs(best):
+            best = v
+    return best
+
+
+def chalk_amount(x, z):
+    """Kreidespuren auf den Handgriffen (0..1)."""
+    c = 0.0
+    for h in HOLD_BINS.get(int(z / 0.5), ()):
+        if h["type"] == "foot":
+            continue
+        dx, dz = x - h["x"], z - h["z"]
+        # nur auf der Griffkante und knapp darunter, mit unregelmaessigem Rand
+        ragged = 0.75 + 0.25 * noise.noise(Vector((x * 40, z * 40, 0.3)))
+        c = max(c, ragged * math.exp(-((dx / (h["w"] * 0.42)) ** 2 + ((dz + 0.005) / 0.04) ** 2)))
+    return c
+
+
+def surface_point(x, z, fine=True, holds=True):
+    hold = hold_offset(x, z) if (fine and holds and HOLDS) else 0.0
     if DUFOUR:
         # echter Fels + eigenes Relief zur Kletterseite hin; am Rand knapp hinter das Gelaende
         f = edge_fade(x, z)
         inner = max(0.03, 0.10 + 0.8 * detail(x, z, fine))
         off = f * inner - (1 - f) * 0.06
-        return Vector((x, real_depth(x, z) - off, z))
-    return Vector((x, profile_y(z) - detail(x, z, fine), z))
+        return Vector((x, real_depth(x, z) - off - hold, z))
+    return Vector((x, profile_y(z) - detail(x, z, fine) - hold, z))
 
 
-def surface_normal(x, z):
+def surface_normal(x, z, holds=False):
     e = 0.02
-    px = surface_point(x + e, z) - surface_point(x - e, z)
-    pz = surface_point(x, z + e) - surface_point(x, z - e)
+    px = surface_point(x + e, z, holds=holds) - surface_point(x - e, z, holds=holds)
+    pz = surface_point(x, z + e, holds=holds) - surface_point(x, z - e, holds=holds)
     n = px.cross(pz)           # X x Z = -Y -> zeigt zur Kletterseite
     n.normalize()
     return n
@@ -237,7 +285,19 @@ def make_source_material():
     cav_mix.inputs["Factor"].default_value = 1.0
     links.new(band_mix.outputs["Result"], cav_mix.inputs["A"])
     links.new(cav.outputs["Color"], cav_mix.inputs["B"])
-    links.new(cav_mix.outputs["Result"], bsdf.inputs["Base Color"])
+    # Kreidespuren (Farbattribut "chalk" am High-Poly)
+    chalk_attr = nodes.new("ShaderNodeAttribute")
+    chalk_attr.attribute_name = "chalk"
+    chalk_fac = nodes.new("ShaderNodeMath")
+    chalk_fac.operation = "MULTIPLY"
+    chalk_fac.inputs[1].default_value = 0.5
+    links.new(chalk_attr.outputs["Fac"], chalk_fac.inputs[0])
+    chalk_mix = nodes.new("ShaderNodeMix")
+    chalk_mix.data_type = "RGBA"
+    chalk_mix.inputs["B"].default_value = (0.62, 0.61, 0.6, 1)
+    links.new(chalk_fac.outputs["Value"], chalk_mix.inputs["Factor"])
+    links.new(cav_mix.outputs["Result"], chalk_mix.inputs["A"])
+    links.new(chalk_mix.outputs["Result"], bsdf.inputs["Base Color"])
 
     fine = nodes.new("ShaderNodeTexNoise")
     fine.inputs["Scale"].default_value = 30.0
@@ -307,12 +367,6 @@ def bake(low, high):
 
 
 # ---------------------------------------------------------------- Griffe
-GRIP_SHAPES = {
-    #          Breite, Hoehe, Tiefe (m)
-    "jug":    (0.16, 0.08, 0.09),
-    "crimp":  (0.12, 0.03, 0.035),
-    "sloper": (0.22, 0.15, 0.06),
-}
 
 
 def pick_type(z, rnd):
@@ -363,59 +417,71 @@ def layout_grips():
     return grips
 
 
-def make_holds_and_empties(grips):
-    bm = bmesh.new()
+HOLD_WIDTH = {"jug": 0.17, "crimp": 0.13, "sloper": 0.22, "foot": 0.12}
+
+
+def layout_feet(grips):
+    """Tritte fuer die Fuesse: kleine Absaetze entlang der Route, nicht auf Handgriffen."""
+    rnd = random.Random(SEED + 1)
+    feet = []
+    z = 0.3
+    while z < TOP - 1.2:
+        cx = route_center(z + 1.0)
+        for side in (-1, 1):
+            x = cx + side * rnd.uniform(0.15, 0.35)
+            zz = z + rnd.uniform(-0.06, 0.06)
+            if all(math.hypot(x - g["x"], zz - g["z"]) > 0.22 for g in grips):
+                feet.append({"x": x, "z": zz, "type": "foot"})
+        z += rnd.uniform(0.28, 0.36)
+    return feet
+
+
+def register_holds(grips, feet):
+    rnd = random.Random(SEED + 2)
+    HOLDS.clear()
+    HOLD_BINS.clear()
+    for g in grips + feet:
+        h = {"x": g["x"], "z": g["z"], "type": g["type"],
+             "w": HOLD_WIDTH[g["type"]] * rnd.uniform(0.85, 1.2)}
+        HOLDS.append(h)
+        b = int(h["z"] / 0.5)
+        for k in (b - 1, b, b + 1):
+            HOLD_BINS.setdefault(k, []).append(h)
+
+
+def make_empties(grips, feet):
+    """Logikpunkte: grip_* (Haende) und foot_* (Fuesse) auf der Felsform, Ausrichtung = Wandnormale."""
     empties = []
     counters = {}
-    for g in grips:
+    for g in grips + feet:
         t = g["type"]
         counters[t] = counters.get(t, 0) + 1
         x, z = g["x"], g["z"]
-        n = surface_normal(x, z)
-        p = surface_point(x, z)
-        w, h, d = GRIP_SHAPES[t]
-        # Orientierung: lokale Z = Flaechennormale, lokale X = Welt-X
+        n = surface_normal(x, z)                  # Normale der Wand ohne Griff (fuer die Mechanik)
+        p = surface_point(x, z)                   # Punkt auf der Griffkante
         zx = n
         xx = Vector((1, 0, 0))
         yx = zx.cross(xx).normalized()
         xx = yx.cross(zx).normalized()
         rot = Matrix((xx, yx, zx)).transposed()
-        if t == "crimp":
-            geom = bmesh.ops.create_cube(bm, size=1.0)
+        if t == "foot":
+            name = f"foot_{counters[t]:03d}"
         else:
-            geom = bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=6, radius=0.5)
-        verts = geom["verts"]
-        scale = Matrix.Diagonal((w, h, d * 2 if t != "crimp" else d, 1.0))
-        mat = Matrix.Translation(p + n * (d * 0.15)) @ rot.to_4x4() @ scale
-        bmesh.ops.transform(bm, matrix=mat, verts=verts)
-
-        name = "grip_summit" if g.get("summit") else f"grip_{t}_{counters[t]:03d}"
+            name = "grip_summit" if g.get("summit") else f"grip_{t}_{counters[t]:03d}"
         e = bpy.data.objects.new(name, None)
         e.empty_display_type = "ARROWS"
-        e.empty_display_size = 0.12
-        # Greifpunkt: vorne-oben am Griff
-        e.matrix_world = Matrix.Translation(p + n * (d * 0.9) + yx * (h * 0.25)) @ rot.to_4x4()
-        e["grip_type"] = t
-        e["start"] = int(g.get("start", 0))
-        e["summit"] = int(g.get("summit", 0))
+        e.empty_display_size = 0.1
+        e.matrix_world = Matrix.Translation(p + n * 0.02) @ rot.to_4x4()
+        if t == "foot":
+            e["foot"] = 1
+        else:
+            e["grip_type"] = t
+            e["start"] = int(g.get("start", 0))
+            e["summit"] = int(g.get("summit", 0))
         bpy.context.scene.collection.objects.link(e)
         empties.append(e)
-
-    mesh = bpy.data.meshes.new("holds_mesh")
-    bm.to_mesh(mesh)
-    bm.free()
-    holds = bpy.data.objects.new("holds", mesh)
-    bpy.context.scene.collection.objects.link(holds)
-    mat = bpy.data.materials.new("holds_chalk")
-    mat.use_nodes = True
-    b = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
-    b.inputs["Base Color"].default_value = (0.55, 0.53, 0.50, 1)
-    b.inputs["Roughness"].default_value = 0.95
-    mesh.materials.append(mat)
-    for poly in mesh.polygons:
-        poly.use_smooth = True
-    log(f"{len(empties)} Griffe gesetzt: " + ", ".join(f"{k}={v}" for k, v in counters.items()))
-    return holds, empties
+    log(f"{len(empties)} Punkte gesetzt: " + ", ".join(f"{k}={v}" for k, v in counters.items()))
+    return empties
 
 
 # ---------------------------------------------------------------- Szene
@@ -476,8 +542,16 @@ def main():
         for block in list(coll):
             coll.remove(block)
 
+    grips = layout_grips()
+    feet = layout_feet(grips)
+    register_holds(grips, feet)
+
     high = bpy.data.objects.new("wall_high", grid_mesh("wall_high_mesh", HIGH_STEP, True))
     bpy.context.scene.collection.objects.link(high)
+    chalk = high.data.color_attributes.new(name="chalk", type="FLOAT_COLOR", domain="POINT")
+    for v in high.data.vertices:
+        c = chalk_amount(v.co.x, v.co.z)
+        chalk.data[v.index].color = (c, c, c, 1.0)
     high.data.materials.append(make_source_material())
     log(f"High-Poly: {tri_count(high.data)} Dreiecke")
 
@@ -498,7 +572,7 @@ def main():
     bpy.data.objects.remove(high)
     bpy.data.meshes.remove(hm)
 
-    holds, empties = make_holds_and_empties(layout_grips())
+    empties = make_empties(grips, feet)
 
     col = bpy.data.objects.new("col_wall", grid_mesh("col_wall_mesh", COL_STEP, False))
     bpy.context.scene.collection.objects.link(col)
@@ -512,19 +586,19 @@ def main():
     col["collider"] = "mesh"
     log(f"col_wall: {tri_count(col.data)} Dreiecke")
 
-    for o in [holds, col] + empties:
+    for o in [col] + empties:
         o.parent = low
 
     setup_preview_scene()
-    report.update(wall_tris=tri_count(low.data), holds_tris=tri_count(holds.data),
-                  col_tris=tri_count(col.data), grips=len(empties))
+    report.update(wall_tris=tri_count(low.data), col_tris=tri_count(col.data),
+                  grips=len(grips), feet=len(feet))
 
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH)
     log(f"Blend gespeichert: {BLEND_PATH}")
 
     bpy.ops.object.select_all(action="DESELECT")
-    for o in [low, holds, col] + empties:
+    for o in [low, col] + empties:
         o.select_set(True)
     bpy.context.view_layer.objects.active = low
     bpy.ops.export_scene.gltf(
