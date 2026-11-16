@@ -2,21 +2,31 @@ import * as THREE from 'three';
 import { createRenderer } from './render/renderer';
 import { createEnvironment } from './world/environment';
 import { loadWall } from './world/loadWall';
+import { loadTerrain } from './world/terrain';
 import { Climber, type Side } from './climbing/climber';
 import { GripAim } from './climbing/aim';
 import { PlaceholderFigure } from './character/placeholder';
 import { CameraRig } from './core/cameraRig';
 import { Hud } from './ui/hud';
 import { Autopilot } from './climbing/autopilot';
+import route from './routes/dufourspitze.json';
 
 const BASE = import.meta.env.BASE_URL;
+const params = new URLSearchParams(location.search);
+/** ?noterrain -> nur Testwand ohne Gelaende (schneller Start) */
+const useTerrain = !params.has('noterrain');
 
 const renderer = createRenderer(document.body);
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xc9d5e0, 40, 220);
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 3000);
-camera.position.set(0, 3, 8);
-createEnvironment(scene, renderer);
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 40000);
+const env = createEnvironment(
+  scene,
+  renderer,
+  useTerrain
+    ? // Sommerabend: Sonne aus West-Nordwest streift die Nordwand
+      { ground: false, haze: true, sunAzimuthDeg: -112, sunElevationDeg: 22 }
+    : { ground: true },
+);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -24,18 +34,44 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+const loadingEl = document.getElementById('loading')!;
+const progress = { wall: 0, terrain: useTerrain ? 0 : 1 };
+function showProgress(): void {
+  const p = useTerrain ? progress.wall * 0.15 + progress.terrain * 0.85 : progress.wall;
+  loadingEl.textContent = `lade ${useTerrain ? 'Dufourspitze' : 'Wand'} … ${Math.round(p * 100)} %`;
+}
+
 async function start(): Promise<void> {
-  const [wall, rock] = await Promise.all([
-    loadWall(`${BASE}assets/test_wall.glb`),
-    loadWall(`${BASE}assets/test_rock.glb`),
+  showProgress();
+  const wallPlace = useTerrain
+    ? { position: route.wall.position as THREE.Vector3Tuple, yaw: route.wall.yaw }
+    : {};
+  const [wall, terrain] = await Promise.all([
+    loadWall(`${BASE}assets/test_wall.glb`, wallPlace, (f) => {
+      progress.wall = f;
+      showProgress();
+    }),
+    useTerrain
+      ? loadTerrain(`${BASE}${route.terrain.file}`, renderer, (f) => {
+          progress.terrain = f;
+          showProgress();
+        })
+      : Promise.resolve(null),
   ]);
   scene.add(wall.root);
-  rock.root.position.set(4.6, 0, 2.2);
-  rock.root.rotation.y = 0.6;
-  rock.root.traverse((o) => {
-    if (o.name.startsWith('grip_')) o.visible = false;
-  });
-  scene.add(rock.root);
+  if (terrain) scene.add(terrain);
+  const groundY = useTerrain ? route.wall.position[1] : 0;
+
+  if (useTerrain) {
+    // kleiner Felsabsatz am Wandfuss (das Gelaende faellt davor steil ab)
+    const ledge = new THREE.Mesh(
+      new THREE.BoxGeometry(6.4, 2.0, 2.2),
+      new THREE.MeshStandardMaterial({ color: 0x55524e, roughness: 0.95 }),
+    );
+    ledge.position.set(0, -1.0, 0.7);
+    ledge.castShadow = ledge.receiveShadow = true;
+    wall.root.add(ledge);
+  }
 
   // Abstand zur Wand messen (Raycast gegen die sichtbaren Wand-Meshes)
   const ray = new THREE.Raycaster();
@@ -49,13 +85,18 @@ async function start(): Promise<void> {
     return hit ? hit.distance - 2.5 : null;
   };
 
-  const climber = new Climber(wall.grips, probe);
+  const climber = new Climber(wall.grips, probe, groundY);
   const figure = new PlaceholderFigure();
   scene.add(figure.group);
   const aim = new GripAim(wall.grips, scene, renderer.domElement);
   const rig = new CameraRig(camera, renderer.domElement);
+  if (useTerrain) {
+    // schraeg von der Seite: Wand und Landschaft gleichzeitig im Bild
+    rig.defaultYaw = rig.yaw = 0.65;
+    rig.distance = 5.5;
+  }
   const hud = new Hud();
-  document.getElementById('loading')!.remove();
+  loadingEl.remove();
 
   const reachable = (g: (typeof wall.grips)[number]) => climber.canReach('left', g) || climber.canReach('right', g);
   const grab = (side: Side) => {
@@ -74,13 +115,7 @@ async function start(): Promise<void> {
     if (k === 'r') climber.reset(true);
   });
 
-  // fuer automatische Tests (Headless-Screenshot)
-  (window as unknown as { __game: unknown }).__game = { climber, wall, aim };
-  document.body.dataset.loaded = 'true';
-
-  const params = new URLSearchParams(location.search);
   const autopilot = params.has('autoclimb') ? new Autopilot(climber, wall.grips) : null;
-  // ?autoclimb=8 -> nach 8 s Spielzeit anhalten (fuer Screenshots auf halber Hoehe)
   const stopAfter = Number(params.get('autoclimb')) || Infinity;
 
   // ?sim=30 -> 30 s Autopilot sofort durchrechnen (Test ohne Echtzeit, z. B. fuer Headless-Screenshots)
@@ -91,35 +126,48 @@ async function start(): Promise<void> {
       ap.update(1 / 60);
       climber.update(1 / 60);
     }
-    const hs = (['left', 'right'] as const)
-      .map((s) => {
-        const h = climber.hands[s];
-        const g = h.grip ?? h.target;
-        return `${s}:${g ? g.name : '-'}@${h.pos.toArray().map((v) => v.toFixed(2)).join(',')}`;
-      })
-      .join(' ');
-    const result = `sim ${sim}s: Zustand=${climber.state} Höhe=${climber.height.toFixed(1)}m Zeit=${climber.elapsed.toFixed(1)}s Stürze=${climber.falls} body=${climber.body.toArray().map((v) => v.toFixed(2)).join(',')} ${hs}`;
-    console.log(result);
-    document.title = result;
+    document.title = `sim ${sim}s: ${climber.state} Höhe=${climber.height.toFixed(1)}m Stürze=${climber.falls}`;
     rig.distance = 5;
   }
+  // ?view=valley -> Aussicht ins Tal (wie Taste V), ?view=side -> Kamera seitlich und weit weg
+  if (params.get('view') === 'valley') rig.lookout = true;
+  if (params.get('view') === 'side') {
+    rig.yaw = 1.3;
+    rig.pitch = 0.35;
+    rig.distance = 25;
+  }
 
+  // Bildrate messen (fuer Tests in document.body.dataset.fps)
+  const fpsEl = document.getElementById('fps')!;
+  let frames = 0;
+  let fpsTime = 0;
   const clock = new THREE.Clock();
+  (window as unknown as { __game: unknown }).__game = { climber, wall, aim, rig };
+  document.body.dataset.loaded = 'true';
+
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
     if (autopilot && climber.elapsed < stopAfter) autopilot.update(dt);
     climber.update(dt);
     figure.update(climber, clock.elapsedTime);
     rig.update(climber.body, climber.out, dt);
+    env.update(camera, climber.body);
     aim.update(camera, window.innerWidth, window.innerHeight, reachable);
-    hud.update(climber, aim.hovered, aim.hovered ? reachable(aim.hovered) : false);
+    hud.update(climber, aim.hovered, aim.hovered ? reachable(aim.hovered) : false, climber.body.y);
     renderer.render(scene, camera);
+    frames++;
+    fpsTime += dt;
+    if (fpsTime >= 1) {
+      document.body.dataset.fps = String(Math.round(frames / fpsTime));
+      fpsEl.textContent = `${document.body.dataset.fps} FPS`;
+      frames = 0;
+      fpsTime = 0;
+    }
   });
 }
 
 start().catch((err: unknown) => {
-  const l = document.getElementById('loading');
-  if (l) l.textContent = `Fehler beim Laden: ${String(err)}`;
+  loadingEl.textContent = `Fehler beim Laden: ${String(err)}`;
   document.body.dataset.loaded = 'error';
   console.error(err);
 });

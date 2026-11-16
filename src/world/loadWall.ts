@@ -23,9 +23,23 @@ const loader = new GLTFLoader();
  * Empties mit Praefix "grip_" sind Griffpunkte. Die lokale Blender-Z-Achse
  * (= Flaechennormale) ist nach dem glTF-Export die lokale +Y-Achse.
  */
-export async function loadWall(url: string): Promise<WallAsset> {
-  const gltf = await loader.loadAsync(url);
+export interface Placement {
+  position?: THREE.Vector3Tuple;
+  /** Drehung um die Hochachse (rad); die Wand schaut lokal nach +Z */
+  yaw?: number;
+}
+
+export async function loadWall(
+  url: string,
+  place: Placement = {},
+  onProgress?: (fraction: number) => void,
+): Promise<WallAsset> {
+  const gltf = await loader.loadAsync(url, (e) => {
+    if (onProgress && e.total) onProgress(e.loaded / e.total);
+  });
   const root = gltf.scene;
+  if (place.position) root.position.fromArray(place.position);
+  if (place.yaw !== undefined) root.rotation.y = place.yaw;
   root.updateMatrixWorld(true);
 
   const surfaces: THREE.Mesh[] = [];

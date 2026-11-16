@@ -5,3 +5,4 @@ dist/
 scripts/blender/make_rock_report.json
 .vite/
 scripts/blender/make_wall_report.json
+assets-src/terrain/raw/

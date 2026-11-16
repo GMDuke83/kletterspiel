@@ -23,7 +23,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const REACH = 1.12; // Schulter -> Griff (m)
 const GRAB_TIME = 0.28; // Sekunden fuer eine Greifbewegung
 const BODY_CLEARANCE = 0.24; // Mindestabstand Koerpermitte -> Fels
-const GROUND_BODY_Y = 1.0; // Koerpermitte, wenn die Figur am Boden steht
+const STAND_HEIGHT = 1.0; // Koerpermitte ueber dem Boden, wenn die Figur steht
 const RESPAWN_DELAY = 1.3;
 
 /** Horizontaler Anteil der Flaechennormale (Richtung "von der Wand weg"). */
@@ -49,10 +49,16 @@ export class Climber {
   private lastSafe: [Grip, Grip];
   private readonly startGrips: [Grip, Grip];
 
+  /** Koerpermitte, wenn die Figur am Wandfuss steht */
+  private readonly groundBodyY: number;
+
   constructor(
     grips: Grip[],
     private readonly probe: WallProbe,
+    /** Hoehe des Bodens am Wandfuss (m) */
+    readonly groundY = 0,
   ) {
+    this.groundBodyY = groundY + STAND_HEIGHT;
     const starts = grips.filter((g) => g.start).sort((a, b) => a.position.x - b.position.x);
     if (starts.length < 2) throw new Error('Wand braucht zwei Start-Griffe (Extra "start")');
     this.startGrips = [starts[0], starts[starts.length - 1]];
@@ -234,8 +240,8 @@ export class Climber {
     this.velocity.y -= 9.81 * dt;
     const step = this.velocity.clone().multiplyScalar(dt);
     this.body.add(step);
-    if (this.body.y <= GROUND_BODY_Y) {
-      this.body.y = GROUND_BODY_Y;
+    if (this.body.y <= this.groundBodyY) {
+      this.body.y = this.groundBodyY;
       this.velocity.set(0, 0, 0);
     }
     this.keepOffWall(this.body);
@@ -271,7 +277,7 @@ export class Climber {
       const s = held[0].side === 'left' ? 1 : -1;
       out.addScaledVector(UP, -0.75).addScaledVector(this.right, 0.18 * s);
     }
-    out.y = Math.max(out.y, GROUND_BODY_Y);
+    out.y = Math.max(out.y, this.groundBodyY);
     return out;
   }
 
@@ -290,6 +296,6 @@ export class Climber {
   }
 
   get height(): number {
-    return Math.max(0, this.body.y - GROUND_BODY_Y);
+    return Math.max(0, this.body.y - this.groundBodyY);
   }
 }

@@ -12,6 +12,7 @@ export class Hud {
   private bars = { left: el('barL'), right: el('barR') };
   private gripLabels = { left: el('gripL'), right: el('gripR') };
   private height = el('height');
+  private alt = el('alt');
   private time = el('time');
   private falls = el('falls');
   private msg = el('msg');
@@ -19,7 +20,7 @@ export class Hud {
   private overlay = el('overlay');
   private overlayText = el('overlayText');
 
-  update(c: Climber, hovered: Grip | null, reachable: boolean): void {
+  update(c: Climber, hovered: Grip | null, reachable: boolean, altitude: number): void {
     for (const side of ['left', 'right'] as Side[]) {
       const h = c.hands[side];
       const pct = Math.round(h.stamina * 100);
@@ -32,6 +33,7 @@ export class Hud {
           : 'frei';
     }
     this.height.textContent = `${c.height.toFixed(1)} m`;
+    this.alt.textContent = `${Math.round(altitude).toLocaleString('de-CH')} m ü. M.`;
     this.time.textContent = `${c.elapsed.toFixed(1)} s`;
     this.falls.textContent = String(c.falls);
     this.msg.textContent = c.activeMessage;

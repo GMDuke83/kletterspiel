@@ -3,24 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kletterspiel – Prototyp</title>
+    <title>Kletterspiel – Dufourspitze</title>
     <link rel="stylesheet" href="/src/ui/style.css" />
   </head>
   <body>
     <div id="hud">
       <div class="row"><span class="tag left">L</span><div class="bar"><div id="barL"></div></div><span id="gripL" class="grip"></span></div>
       <div class="row"><span class="tag right">R</span><div class="bar"><div id="barR"></div></div><span id="gripR" class="grip"></span></div>
-      <div class="stats">Höhe <b id="height">0 m</b> · Zeit <b id="time">0 s</b> · Stürze <b id="falls">0</b></div>
+      <div class="stats">Wand <b id="height">0 m</b> · <b id="alt">–</b></div>
+      <div class="stats">Zeit <b id="time">0 s</b> · Stürze <b id="falls">0</b></div>
       <div id="loading">lade Wand …</div>
     </div>
     <div id="help">
-      Maus auf einen Griff zielen · <b class="left">linke Maustaste</b> = linke Hand ·
-      <b class="right">rechte Maustaste</b> = rechte Hand (oder Q / E) · Mausrad = Kamera · R = Neustart<br />
+      Maus auf Griff · <b class="left">linke Maustaste</b> / <b class="right">rechte Maustaste</b> = linke / rechte Hand (Q / E) · R = Neustart<br />
+      Mausrad = Abstand · mittlere Maustaste oder Pfeiltasten = Kamera drehen · <b>V</b> = Aussicht ins Tal · Leertaste = Kamera zurück<br />
       <span class="dot jug"></span>Henkel (erholt) <span class="dot crimp"></span>Leiste
       <span class="dot sloper"></span>Sloper <span class="dot summit"></span>Gipfel
     </div>
     <div id="hover"></div>
     <div id="msg"></div>
+    <div id="credits"><span id="fps"></span> · Geodaten © swisstopo</div>
     <div id="overlay" hidden>
       <h1>Gipfel erreicht!</h1>
       <p id="overlayText"></p>
