@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "rock": "scripts\\blender\\make_rock.cmd"
+    "rock": "scripts\\blender\\make_rock.cmd",
+    "wall": "scripts\blender\\make_wall.cmd",
+    "test:sim": "esbuild scripts/test/simClimb.ts --bundle --platform=node --log-level=warning --outfile=node_modules/.cache/simClimb.cjs && node node_modules/.cache/simClimb.cjs public/assets/test_wall.glb 600"
   },
   "dependencies": {
     "three": "^0.170.0"

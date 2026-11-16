@@ -1,37 +1,39 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
-export interface Grip {
-  name: string;
-  type: string;
-  node: THREE.Object3D;
-}
+import type { Grip, GripType } from '../climbing/grip';
 
 export interface WallAsset {
   root: THREE.Object3D;
+  /** sichtbare Meshes (fuer Raycasts gegen die Wand) */
+  surfaces: THREE.Mesh[];
   colliders: THREE.Mesh[];
   grips: Grip[];
   triangles: number;
 }
 
-const GRIP_COLORS: Record<string, number> = { jug: 0xff5a1f };
-
 function triCount(geo: THREE.BufferGeometry): number {
   return (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
 }
 
+const loader = new GLTFLoader();
+
 /**
  * Laedt eine Wand-/Fels-GLB aus Blender.
  * Konventionen: Meshes mit Praefix "col_" sind Kollision (unsichtbar),
- * Empties mit Praefix "grip_" sind Griffpunkte (lokale Z-Achse = Flaechennormale).
+ * Empties mit Praefix "grip_" sind Griffpunkte. Die lokale Blender-Z-Achse
+ * (= Flaechennormale) ist nach dem glTF-Export die lokale +Y-Achse.
  */
 export async function loadWall(url: string): Promise<WallAsset> {
-  const gltf = await new GLTFLoader().loadAsync(url);
+  const gltf = await loader.loadAsync(url);
+  const root = gltf.scene;
+  root.updateMatrixWorld(true);
+
+  const surfaces: THREE.Mesh[] = [];
   const colliders: THREE.Mesh[] = [];
   const grips: Grip[] = [];
   let triangles = 0;
 
-  gltf.scene.traverse((o) => {
+  root.traverse((o) => {
     if (o instanceof THREE.Mesh) {
       if (o.name.startsWith('col_') || o.userData.collider) {
         o.visible = false;
@@ -40,24 +42,30 @@ export async function loadWall(url: string): Promise<WallAsset> {
       } else {
         o.castShadow = true;
         o.receiveShadow = true;
+        surfaces.push(o);
         triangles += triCount(o.geometry);
+        const mat = o.material as THREE.MeshStandardMaterial;
+        if (mat.normalMap) mat.normalScale.set(1.6, 1.6); // Felsstruktur etwas kraeftiger
       }
     } else if (o.name.startsWith('grip_')) {
-      const type = (o.userData.grip_type as string | undefined) ?? 'jug';
-      grips.push({ name: o.name, type, node: o });
+      const ud = o.userData as { grip_type?: string; start?: number; summit?: number };
+      const position = new THREE.Vector3();
+      o.getWorldPosition(position);
+      const q = new THREE.Quaternion();
+      o.getWorldQuaternion(q);
+      const normal = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize();
+      grips.push({
+        id: grips.length,
+        name: o.name,
+        type: (ud.grip_type as GripType | undefined) ?? 'jug',
+        start: !!ud.start,
+        summit: !!ud.summit,
+        position,
+        normal,
+        node: o,
+      });
     }
   });
 
-  // Griff-Marker: kleine Kugel + Pfeil entlang der Flaechennormale
-  for (const g of grips) {
-    const color = GRIP_COLORS[g.type] ?? 0xffff00;
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 16, 12),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.4 }),
-    );
-    g.node.add(marker);
-    g.node.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 0.18, color));
-  }
-
-  return { root: gltf.scene, colliders, grips, triangles };
+  return { root, surfaces, colliders, grips, triangles };
 }

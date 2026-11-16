@@ -67,12 +67,24 @@ def profile_y(z):
     return y
 
 
+def plates(x, z):
+    """Voronoi-Platten: jede Zelle bekommt eine eigene Hoehe, Kanten leicht gefast."""
+    # leicht gedreht und verzerrt, damit keine Raster-Ausrichtung sichtbar ist
+    q = Vector((x * 0.8 + 0.3 * z, z * 1.1 - 0.2 * x, 0.37))
+    q += noise.noise_vector(q * 0.6) * 0.35
+    dist, pts = noise.voronoi(q, distance_metric="DISTANCE")
+    h1 = noise.cell(pts[0] * 3.7)
+    h2 = noise.cell(pts[1] * 3.7)
+    t = smoothstep(0.0, 0.07, dist[1] - dist[0])
+    return (h1 + h2) / 2 * (1 - t) + h1 * t
+
+
 def detail(x, z, fine=True):
     """Felsrelief entlang -Y (zur Kletterseite hin). Mehrere Skalen + Kanten."""
     p = Vector((x, z * 0.9, 0.0))
     big = noise.fractal(p * 0.35, 1.0, 2.0, 3, noise_basis="PERLIN_ORIGINAL") * 0.30
-    # gestufte Platten (Voronoi-Zellen mit eigener Hoehe) -> kantige Absaetze
-    cell = noise.cell(Vector((x * 0.9 + 3.1, z * 1.4, 0.7))) * 0.10
+    # gestufte Platten (unregelmaessige Voronoi-Zellen mit eigener Hoehe) -> kantige Absaetze
+    cell = plates(x, z) * 0.11
     ridge = noise.ridged_multi_fractal(p * 1.3, 1.0, 2.0, 4, 1.0, 2.0,
                                        noise_basis="PERLIN_ORIGINAL") * 0.035
     d = big + cell + ridge
@@ -275,6 +287,11 @@ def pick_type(z, rnd):
     return "jug"
 
 
+def route_center(z):
+    """Mittellinie der Route: schlaengelt sich sanft (max. ~0.9 m zur Seite)."""
+    return 0.9 * math.sin((z - 1.6) * 0.38)
+
+
 def layout_grips():
     """Erzeugt eine kletterbare Route: Reihen alle ~0.5 m, Mittellinie schlaengelt sich."""
     rnd = random.Random(SEED)
@@ -282,23 +299,23 @@ def layout_grips():
         {"x": -0.32, "z": 1.65, "type": "jug", "start": 1},
         {"x": 0.32, "z": 1.65, "type": "jug", "start": 1},
     ]
-    z, row = 2.15, 0
-    while z < 11.2:
-        cx = 1.1 * math.sin(z * 0.55)
-        a = {"x": cx + rnd.uniform(-0.45, -0.15), "z": z + rnd.uniform(-0.06, 0.06)}
-        b = {"x": cx + rnd.uniform(0.15, 0.45), "z": z + rnd.uniform(-0.06, 0.06)}
+    z, row = 2.1, 0
+    while z < 11.25:
+        cx = route_center(z)
+        a = {"x": cx + rnd.uniform(-0.4, -0.12), "z": z + rnd.uniform(-0.06, 0.06)}
+        b = {"x": cx + rnd.uniform(0.12, 0.4), "z": z + rnd.uniform(-0.06, 0.06)}
         a["type"] = "jug" if row % 4 == 0 else pick_type(z, rnd)
         b["type"] = pick_type(z, rnd)
         grips += [a, b]
         if rnd.random() < 0.5:   # Seitengriff als Alternative
             side = rnd.choice((-1, 1))
-            c = {"x": cx + side * rnd.uniform(0.8, 1.3), "z": z + rnd.uniform(-0.15, 0.15)}
+            c = {"x": cx + side * rnd.uniform(0.7, 1.1), "z": z + rnd.uniform(-0.15, 0.15)}
             c["x"] = max(-WIDTH / 2 + 0.4, min(WIDTH / 2 - 0.4, c["x"]))
             c["type"] = pick_type(z, rnd)
             grips.append(c)
-        z += rnd.uniform(0.42, 0.56)
+        z += rnd.uniform(0.38, 0.5)
         row += 1
-    grips.append({"x": 1.1 * math.sin(11.7 * 0.55), "z": 11.7, "type": "jug", "summit": 1})
+    grips.append({"x": route_center(11.7), "z": 11.7, "type": "jug", "summit": 1})
     return grips
 
 
