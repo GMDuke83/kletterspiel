@@ -39,17 +39,25 @@ const probe = `(() => {
     let bone = null; f.root.traverse(o => { if (o.isBone && (o.name === b || o.name === b.replace('.',''))) bone = o; });
     if (bone) { bone.updateWorldMatrix(true,false); const e = bone.matrixWorld.elements; out['knee_'+b] = [e[12],e[13],e[14]]; }
   }
-  out.state = window.__game.climber.state; out.h = window.__game.climber.height;
+  const c = window.__game.climber; out.body = [c.body.x, c.body.y, c.body.z];
+  out.hands = [c.hands.left.pos.x + c.hands.right.pos.x, c.hands.left.pos.y + c.hands.right.pos.y, 0];
+  out.state = c.state; out.h = c.height;
   return out;
 })()`;
 const a = await evaluate(probe);
 let maxMove = 0;
+let bodyMoved = 0;
 let worst = '';
 for (let k = 0; k < 10; k++) {
   await sleep(500);
   const b = await evaluate(probe);
   for (const key of Object.keys(a)) {
     if (!Array.isArray(a[key]) || !Array.isArray(b[key])) continue;
+    if (key === 'body' || key === 'hands') {
+      const db = Math.hypot(a[key][0] - b[key][0], a[key][1] - b[key][1], a[key][2] - b[key][2]);
+      if (db > 0.005) bodyMoved = Math.max(bodyMoved, db);
+      continue;
+    }
     const d = Math.hypot(a[key][0] - b[key][0], a[key][1] - b[key][1], a[key][2] - b[key][2]);
     if (d > maxMove) {
       maxMove = d;
@@ -57,8 +65,10 @@ for (let k = 0; k < 10; k++) {
     }
   }
 }
+if (bodyMoved) console.log(`Hinweis: Koerper/Haende bewegten sich selbst um ${(bodyMoved * 100).toFixed(1)} cm (Mechanik, z. B. Ausdauer/Abrutschen) - Messung nicht aussagekraeftig`);
 console.log(`Zustand ${a?.state}, Hoehe ${a?.h?.toFixed(2)} m; groesste Bewegung in 5 s: ${(maxMove * 100).toFixed(2)} cm (${worst})`);
-console.log(maxMove <= 0.01 ? 'BESTANDEN' : 'NICHT BESTANDEN');
+const verdict = bodyMoved ? 'UNGUELTIG (Figur war nicht in Ruhe)' : maxMove <= 0.01 ? 'BESTANDEN' : 'NICHT BESTANDEN';
+console.log(verdict);
 ws.close();
 p.kill();
-process.exit(maxMove <= 0.01 ? 0 : 1);
+process.exit(verdict === 'NICHT BESTANDEN' ? 1 : 0);

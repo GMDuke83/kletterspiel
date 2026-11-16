@@ -275,7 +275,8 @@ export class ClimberFigure {
         let best: THREE.Vector3 | null = null;
         let bestD = 0.45;
         for (const fh of this.footholds) {
-          if (fh.y > hip.y - 0.35 || fh.distanceTo(hip) > legLen * 0.97) continue;
+          // deutlich unter der Nachsetz-Grenze (0,42 m) waehlen, sonst springt der Fuss hin und her
+          if (fh.y > hip.y - 0.5 || fh.distanceTo(hip) > legLen * 0.95) continue;
           if (otherFoot && fh.distanceTo(otherFoot) < 0.12) continue;
           const dd = fh.distanceTo(ideal);
           if (dd < bestD) {
@@ -299,7 +300,9 @@ export class ClimberFigure {
         const overstretched = f.planted.distanceTo(hip) > legLen * 0.99;
         const tooHigh = hip.y - f.planted.y < 0.42;
         const lagging = ideal.y - f.planted.y > 0.4 || f.planted.distanceTo(ideal) > 0.55;
-        if (f.t >= 1 && other.t >= 1 && this.stepCooldown <= 0 && (overstretched || tooHigh || lagging)) {
+        // nur schreiten, wenn das neue Ziel wirklich woanders liegt (sonst Schritt auf der Stelle = Zucken)
+        const worthIt = ideal.distanceTo(f.planted) > 0.12;
+        if (f.t >= 1 && other.t >= 1 && this.stepCooldown <= 0 && worthIt && (overstretched || tooHigh || lagging)) {
           f.from.copy(f.planted);
           f.to.copy(ideal);
           f.t = 0;
